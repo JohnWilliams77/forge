@@ -5,9 +5,12 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 
+import org.apache.commons.lang3.StringUtils;
+
 import com.google.common.collect.Lists;
 
 import forge.GameCommand;
+import forge.card.CardType;
 import forge.card.MagicColor;
 import forge.game.Game;
 import forge.game.ability.AbilityUtils;
@@ -15,6 +18,7 @@ import forge.game.ability.SpellAbilityEffect;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
 import forge.game.card.CardUtil;
+import forge.game.event.GameEventCardStatsChanged;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.util.Lang;
@@ -129,8 +133,12 @@ public class ProtectEffect extends SpellAbilityEffect {
         }
 
         List<String> gainsKWList = Lists.newArrayList();
-        for (String color : gains) {
-            gainsKWList.add(TextUtil.concatWithSpace("Protection from", color));
+        for (String type : gains) {
+            if (CardType.isACardType(type)) {
+                gainsKWList.add("Protection:" + type);
+            }  else {
+                gainsKWList.add(TextUtil.concatWithSpace("Protection from", type));
+            }
         }
 
         tgtCards.addAll(CardUtil.getRadiance(sa));
@@ -145,8 +153,14 @@ public class ProtectEffect extends SpellAbilityEffect {
             if (tgtC.isPhasedOut()) {
                 continue;
             }
+            // do Game Check there in case of LKI
+            final Card gameCard = game.getCardState(tgtC, null);
+            if (gameCard == null || !tgtC.equalsWithGameTimestamp(gameCard)) {
+                continue;
+            }
 
-            tgtC.addChangedCardKeywords(gainsKWList, null, false, timestamp, 0, true);
+            gameCard.addChangedCardKeywords(gainsKWList, null, false, timestamp, null);
+            game.fireEvent(new GameEventCardStatsChanged(gameCard));
 
             if (!"Permanent".equals(sa.getParam("Duration"))) {
                 // If not Permanent, remove protection at EOT
@@ -155,8 +169,9 @@ public class ProtectEffect extends SpellAbilityEffect {
 
                     @Override
                     public void run() {
-                        if (tgtC.isInPlay()) {
-                            tgtC.removeChangedCardKeywords(timestamp, 0, true);
+                        if (gameCard.isInPlay()) {
+                            gameCard.removeChangedCardKeywords(timestamp, 0, true);
+                            game.fireEvent(new GameEventCardStatsChanged(gameCard));
                         }
                     }
                 };
@@ -176,6 +191,8 @@ public class ProtectEffect extends SpellAbilityEffect {
             if (choices.contains("AnyColor")) {
                 gains.addAll(MagicColor.Constant.ONLY_COLORS);
                 choices = choices.replaceAll("AnyColor,?", "");
+            } else if (choices.contains("CardType")) {
+                choices = StringUtils.join(CardType.getAllCardTypes(), ",");
             }
             // Add any remaining choices
             if (choices.length() > 0) {

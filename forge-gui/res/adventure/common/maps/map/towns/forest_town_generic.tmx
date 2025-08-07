@@ -26,7 +26,7 @@
  </layer>
  <layer id="5" name="AboveSprites" width="30" height="17">
   <data encoding="base64" compression="zlib">
-   eJxjYBj8IAtKf9ViYPimhRA/CMSHoOxsIM5Bw7lUsl9Qm4FBSBvhDmSwnJGBYQUQ8wAxFxRzM5JuxzVtBFtch4FBQgdTzSFMIQZOCu3FB47jcQ/M3yC8ksr2ogNc4UFPe46SaeYxKK2FVxV1gTzQMgUKLUQOiywG7GmfGKDHSZk7BgKQ69eBsBuWvshx801gmXNLG1VsIP1ODsDm3hN0dwXxYLCELwD5Hxp7
+   eJxjYBj8IAtKf9ViYPimhRA/CMSHoOxsIM5Bw7lUsl9Qm4FBSBvhDmSwnJGBYQUQ8wAxFxRzM5JuxzVtBFtch4FBQgdTzSFMIQZOCu3FB47jcQ/M3yC8ksr2ogNc4UFPe46SaeYxKK2FVxV1gTzQMgUKLUQOiywG7GkfF7iDFIZ6nJS5YyAAKX4daLth6YscN98Eljm3tFHFBtLv5ABs7j1Bd1cQDwZL+AIAuk8bgw==
   </data>
  </layer>
  <objectgroup id="4" name="Objects">
@@ -73,7 +73,7 @@
   </object>
   <object id="46" template="../../obj/shop.tx" x="368" y="226">
    <properties>
-    <property name="commonShopList" value="Green,Green,Enchantment4Green,Creature2Green,Instant4Green"/>
+    <property name="commonShopList" value="BoosterPackShop,AlphaBoosterPackShop,BetaBoosterPackShop,GammaBoosterPackShop,DeltaBoosterPackShop,GreenBoosterPackShop,Green,Green,Enchantment4Green,Creature2Green,Instant4Green"/>
     <property name="mythicShopList" value="Planeswalker,WUBRG,RGU,UWG,UGB,RWG,RGB,GWB,PhyrexianGreen"/>
     <property name="rareShopList" value="Land4Green,Simic,Golgari,Gruul,Selesnya,Vehicle,Colorless"/>
     <property name="uncommonShopList" value="Artifact,Elf,Wolf4Green,Druid,Squirrel,Sliver2Green,Wand,Equip,Multicolor"/>
@@ -86,7 +86,7 @@
     <property name="noRestock" type="bool" value="true"/>
    </properties>
   </object>
-  <object id="49" template="../../obj/quest.tx" x="98" y="162">
+  <object id="49" template="../../obj/quest.tx" x="80" y="162" width="34" height="16">
    <properties>
     <property name="questtype" value="forest_town_generic"/>
    </properties>

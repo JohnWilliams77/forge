@@ -1,8 +1,5 @@
 package forge.ai.ability;
 
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
-import com.google.common.collect.Iterables;
 import forge.ai.*;
 import forge.card.mana.ManaCostShard;
 import forge.game.Game;
@@ -12,19 +9,19 @@ import forge.game.card.Card;
 import forge.game.card.CardCollection;
 import forge.game.card.CardLists;
 import forge.game.card.CardPredicates;
-import forge.game.card.CardPredicates.Presets;
 import forge.game.combat.Combat;
 import forge.game.cost.Cost;
+import forge.game.cost.CostPartMana;
 import forge.game.cost.CostTap;
 import forge.game.mana.ManaCostBeingPaid;
 import forge.game.phase.PhaseHandler;
 import forge.game.phase.PhaseType;
-import forge.game.phase.Untap;
 import forge.game.player.Player;
 import forge.game.player.PlayerCollection;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.TargetRestrictions;
 import forge.game.zone.ZoneType;
+import forge.util.collect.FCollectionView;
 
 import java.util.List;
 import java.util.Map;
@@ -32,19 +29,16 @@ import java.util.Map;
 public class UntapAi extends SpellAbilityAi {
     @Override
     protected boolean checkAiLogic(final Player ai, final SpellAbility sa, final String aiLogic) {
-        final Card source = sa.getHostCard();
-        if ("EOT".equals(aiLogic) && (source.getGame().getPhaseHandler().getNextTurn() != ai
-                || !source.getGame().getPhaseHandler().getPhase().equals(PhaseType.END_OF_TURN))) {
-            return false;
-        } else if ("PoolExtraMana".equals(aiLogic)) {
+        if ("PoolExtraMana".equals(aiLogic)) {
             return doPoolExtraManaLogic(ai, sa);
-        } else if ("PreventCombatDamage".equals(aiLogic)) {
+        }
+        if ("PreventCombatDamage".equals(aiLogic)) {
             return doPreventCombatDamageLogic(ai, sa);
             // In the future if you want to give Pseudo vigilance to a creature you attacked with
             // activate during your own during the end of combat step
         }
 
-        return !("Never".equals(aiLogic));
+        return super.checkAiLogic(ai, sa, aiLogic);
     }
 
     @Override
@@ -57,59 +51,69 @@ public class UntapAi extends SpellAbilityAi {
     }
 
     @Override
-    protected boolean checkApiLogic(Player ai, SpellAbility sa) {
+    protected AiAbilityDecision checkApiLogic(Player ai, SpellAbility sa) {
         final Card source = sa.getHostCard();
 
-        if (ComputerUtil.preventRunAwayActivations(sa)) {
-            return false;
+        if (sa.usesTargeting()) {
+            if (untapPrefTargeting(ai, sa, false)) {
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
+            } else {
+                return new AiAbilityDecision(0, AiPlayDecision.TargetingFailed);
+            }
         }
 
-        if (!sa.usesTargeting()) {
-            final List<Card> pDefined = AbilityUtils.getDefinedCards(source, sa.getParam("Defined"), sa);
-            return pDefined.isEmpty() || (pDefined.get(0).isTapped() && pDefined.get(0).getController() == ai);
+        final List<Card> pDefined = AbilityUtils.getDefinedCards(source, sa.getParam("Defined"), sa);
+        if (pDefined.isEmpty() || (pDefined.get(0).isTapped() && pDefined.get(0).getController() == ai)) {
+            // If the defined card is tapped, or if there are no defined cards, we can play this ability
+            return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
         } else {
-            // If we already selected a target just use that
-
-            return untapPrefTargeting(ai, sa, false);
+            // Otherwise, we can't play this ability
+            return new AiAbilityDecision(0, AiPlayDecision.MissingNeededCards);
         }
     }
 
     @Override
-    protected boolean doTriggerAINoCost(Player ai, SpellAbility sa, boolean mandatory) {
+    protected AiAbilityDecision doTriggerNoCost(Player ai, SpellAbility sa, boolean mandatory) {
         if (!sa.usesTargeting()) {
             if (mandatory) {
-                return true;
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
             } else if ("Never".equals(sa.getParam("AILogic"))) {
-                return false;
+                return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
             }
 
             final List<Card> pDefined = AbilityUtils.getDefinedCards(sa.getHostCard(), sa.getParam("Defined"), sa);
-            return pDefined.isEmpty() || (pDefined.get(0).isTapped() && pDefined.get(0).getController() == ai);
+            if (pDefined.isEmpty() || (pDefined.get(0).isTapped() && pDefined.get(0).getController() == ai)) {
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
+            } else {
+                return new AiAbilityDecision(0, AiPlayDecision.MissingNeededCards);
+            }
         } else {
             if (untapPrefTargeting(ai, sa, mandatory)) {
-                return true;
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
             } else if (mandatory) {
                 // not enough preferred targets, but mandatory so keep going:
-                return untapUnpreferredTargeting(sa, mandatory);
+                if (untapUnpreferredTargeting(sa, mandatory)) {
+                    return new AiAbilityDecision(50, AiPlayDecision.MandatoryPlay);
+                } else {
+                    return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
+                }
             }
         }
 
-        return false;
+        return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
     }
 
     @Override
-    public boolean chkAIDrawback(SpellAbility sa, Player ai) {
-        boolean randomReturn = true;
-
+    public AiAbilityDecision chkDrawback(SpellAbility sa, Player ai) {
         if (!sa.usesTargeting()) {
             // who cares if its already untapped, it's only a subability?
         } else {
             if (!untapPrefTargeting(ai, sa, false)) {
-                return false;
+                return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
             }
         }
 
-        return randomReturn;
+        return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
     }
 
     /**
@@ -134,11 +138,11 @@ public class UntapAi extends SpellAbilityAi {
         }
         sa.resetTargets();
 
-        final PlayerCollection targetController = new PlayerCollection();
-        if (sa.isCurse()) {
-            targetController.addAll(ai.getOpponents());
+        final PlayerCollection targetController;
+        if (sa.isCurse() || (sa.getSubAbility() != null && sa.getSubAbility().getApi() == ApiType.GainControl)) {
+            targetController = ai.getOpponents();
         } else {
-            targetController.add(ai);
+            targetController = ai.getYourTeam();
         }
 
         CardCollection list = CardLists.getTargetableCards(targetController.getCardsIn(ZoneType.Battlefield), sa);
@@ -160,7 +164,7 @@ public class UntapAi extends SpellAbilityAi {
             }
         }
 
-        CardCollection untapList = targetUntapped ? list : CardLists.filter(list, Presets.TAPPED);
+        CardCollection untapList = targetUntapped ? list : CardLists.filter(list, CardPredicates.TAPPED);
         // filter out enchantments and planeswalkers, their tapped state doesn't matter.
         final String[] tappablePermanents = {"Creature", "Land", "Artifact"};
         untapList = CardLists.getValidCards(untapList, tappablePermanents, source.getController(), source, sa);
@@ -265,7 +269,7 @@ public class UntapAi extends SpellAbilityAi {
         }
 
         // try to just tap already tapped things
-        tapList = CardLists.filter(list, Presets.UNTAPPED);
+        tapList = CardLists.filter(list, CardPredicates.UNTAPPED);
 
         if (untapTargetList(source, tgt, sa, mandatory, tapList)) {
             return true;
@@ -323,15 +327,14 @@ public class UntapAi extends SpellAbilityAi {
 
     @Override
     public Card chooseSingleCard(Player ai, SpellAbility sa, Iterable<Card> list, boolean isOptional, Player targetedPlayer, Map<String, Object> params) {
-        CardCollection pref = CardLists.filterControlledBy(list, ai.getYourTeam());
-        if (Iterables.isEmpty(pref)) {
-            if (isOptional) {
-                return null;
-            }
-        } else {
-            list = pref;
+        CardCollection filteredList = CardLists.filterControlledBy(list, ai.getYourTeam());
+        if (!filteredList.isEmpty()) {
+            return ComputerUtilCard.getBestAI(filteredList);
         }
-        return ComputerUtilCard.getBestAI(list);
+        if (isOptional) {
+            return null;
+        }
+        return ComputerUtilCard.getWorstAI(list);
     }
 
     private static Card detectPriorityUntapTargets(final List<Card> untapList) {
@@ -343,7 +346,7 @@ public class UntapAi extends SpellAbilityAi {
         }
 
         // See if there's anything to untap that is tapped and that doesn't untap during the next untap step by itself
-        CardCollection noAutoUntap = CardLists.filter(untapList, Predicates.not(Untap.CANUNTAP));
+        CardCollection noAutoUntap = CardLists.filter(untapList, c -> !c.canUntap(c.getController(), true));
         if (!noAutoUntap.isEmpty()) {
             return ComputerUtilCard.getBestAI(noAutoUntap);
         }
@@ -354,7 +357,6 @@ public class UntapAi extends SpellAbilityAi {
     private boolean doPreventCombatDamageLogic(final Player ai, final SpellAbility sa) {
         // Only Maze of Ith and Maze of Shadows uses this. Feel free to use it aggressively.
         Game game = ai.getGame();
-        Card source = sa.getHostCard();
         sa.resetTargets();
 
         if (!game.getPhaseHandler().getPlayerTurn().isOpponentOf(ai)) {
@@ -405,23 +407,20 @@ public class UntapAi extends SpellAbilityAi {
         }
 
         // Check if something is playable if we untap for an additional mana with this, then proceed
-        CardCollection inHand = CardLists.filter(ai.getCardsIn(ZoneType.Hand), Predicates.not(CardPredicates.Presets.LANDS));
+        CardCollection inHand = CardLists.filter(ai.getCardsIn(ZoneType.Hand), CardPredicates.NON_LANDS);
         // The AI is not very good at timing non-permanent spells this way, so filter them out
         // (it may actually be possible to enable this for sorceries, but that'll need some canPlay shenanigans)
-        CardCollection playable = CardLists.filter(inHand, Presets.PERMANENTS);
+        CardCollection playable = CardLists.filter(inHand, CardPredicates.PERMANENTS);
 
-        CardCollection untappingCards = CardLists.filter(ai.getCardsIn(ZoneType.Battlefield), new Predicate<Card>() {
-            @Override
-            public boolean apply(Card card) {
-                boolean hasUntapLandLogic = false;
-                for (SpellAbility sa : card.getSpellAbilities()) {
-                    if ("PoolExtraMana".equals(sa.getParam("AILogic"))) {
-                        hasUntapLandLogic = true;
-                        break;
-                    }
+        CardCollection untappingCards = CardLists.filter(ai.getCardsIn(ZoneType.Battlefield), card -> {
+            boolean hasUntapLandLogic = false;
+            for (SpellAbility sa1 : card.getSpellAbilities()) {
+                if ("PoolExtraMana".equals(sa1.getParam("AILogic"))) {
+                    hasUntapLandLogic = true;
+                    break;
                 }
-                return hasUntapLandLogic && card.isUntapped();
             }
+            return hasUntapLandLogic && card.isUntapped();
         });
 
         // TODO: currently limited to Main 2, somehow improve to let the AI use this SA at other time?
@@ -431,11 +430,11 @@ public class UntapAi extends SpellAbilityAi {
                     if (!ComputerUtilMana.hasEnoughManaSourcesToCast(ab, ai)) {
                         // TODO: Currently limited to predicting something that can be paid with any color,
                         // can ideally be improved to work by color.
-                        ManaCostBeingPaid reduced = new ManaCostBeingPaid(ab.getPayCosts().getCostMana().getManaCostFor(ab), ab.getPayCosts().getCostMana().getRestriction());
+                        ManaCostBeingPaid reduced = new ManaCostBeingPaid(ab.getPayCosts().getCostMana().getManaCostFor(ab));
                         reduced.decreaseShard(ManaCostShard.GENERIC, untappingCards.size());
                         if (ComputerUtilMana.canPayManaCost(reduced, ab, ai, false)) {
                             CardCollection manaLandsTapped = CardLists.filter(ai.getCardsIn(ZoneType.Battlefield),
-                                    Presets.LANDS_PRODUCING_MANA, Presets.TAPPED);
+                                    CardPredicates.LANDS_PRODUCING_MANA, CardPredicates.TAPPED);
                             manaLandsTapped = CardLists.getValidCards(manaLandsTapped, sa.getParam("ValidTgts"), ai, source, null);
 
                             if (!manaLandsTapped.isEmpty()) {
@@ -445,7 +444,7 @@ public class UntapAi extends SpellAbilityAi {
 
                             // pool one additional mana by tapping a land to try to ramp to something
                             CardCollection manaLands = CardLists.filter(ai.getCardsIn(ZoneType.Battlefield),
-                                    Presets.LANDS_PRODUCING_MANA, Presets.UNTAPPED);
+                                    CardPredicates.LANDS_PRODUCING_MANA, CardPredicates.CAN_TAP);
                             manaLands = CardLists.getValidCards(manaLands, sa.getParam("ValidTgts"), ai, source, null);
 
                             if (manaLands.isEmpty()) {
@@ -473,4 +472,29 @@ public class UntapAi extends SpellAbilityAi {
         // haven't found any immediate playable options
     }
 
+    @Override
+    public boolean willPayUnlessCost(SpellAbility sa, Player payer, Cost cost, boolean alreadyPaid, FCollectionView<Player> payers) {
+        // Paralyze effects
+        if (sa.hasParam("UnlessSwitched")) {
+            final Card host = sa.getHostCard();
+            final Game game = host.getGame();
+            for (Card card : AbilityUtils.getDefinedCards(host, null, sa)) {
+                final Card gameCard = game.getCardState(card, null);
+                if (gameCard == null
+                        || !gameCard.isInPlay() // not in play
+                        || gameCard.isUntapped() // already untapped
+                        ) {
+                    return false;
+                }
+
+                // if the ManaCost would cost more than the creatures CMC, it is not worth it
+                CostPartMana mana = cost.getCostMana();
+                if (mana != null && mana.getManaCostFor(sa).getCMC() > card.getCMC()) {
+                    return false;
+                }
+            }
+        }
+
+        return super.willPayUnlessCost(sa, payer, cost, alreadyPaid, payers);
+    }
 }

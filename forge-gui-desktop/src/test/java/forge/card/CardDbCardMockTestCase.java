@@ -14,11 +14,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
+import java.util.function.Predicate;
 
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
-
-import com.google.common.base.Predicate;
 
 import forge.StaticData;
 import forge.item.IPaperCard;
@@ -279,21 +278,6 @@ public class CardDbCardMockTestCase extends CardMockTestCase {
     }
 
     @Test
-    public void testGetCardByNameSetArtIndexAndCollectorNumber() {
-        // MultiArt Card
-        PaperCard card;
-        for (int i = 0; i < 4; i++) {
-            int artIndex = i + 1;
-            card = this.cardDb.getCard(cardNameHymnToTourach, editionHymnToTourach, artIndex,
-                    collectorNumbersHymnToTourach[i]);
-            assertEquals(card.getName(), cardNameHymnToTourach);
-            assertEquals(card.getEdition(), editionHymnToTourach);
-            assertEquals(card.getCollectorNumber(), collectorNumbersHymnToTourach[i]);
-            assertEquals(card.getArtIndex(), artIndex);
-        }
-    }
-
-    @Test
     public void testNullIsReturnedWithWrongInfo() {
         String wrongEditionCode = "M11";
         PaperCard legacyCard = this.legacyCardDb.getCard(cardNameShivanDragon, wrongEditionCode);
@@ -307,11 +291,6 @@ public class CardDbCardMockTestCase extends CardMockTestCase {
         assertNull(card);
         // Wrong collector number
         card = this.cardDb.getCard(cardNameShivanDragon, editionShivanDragon, "wrongCN");
-        assertNull(card);
-        // wrong artIndex or collector number in getCard Full Info
-        card = this.cardDb.getCard(cardNameShivanDragon, editionShivanDragon, 3, collNrShivanDragon);
-        assertNull(card);
-        card = this.cardDb.getCard(cardNameShivanDragon, editionShivanDragon, 1, "wrongCN");
         assertNull(card);
     }
 
@@ -1889,7 +1868,7 @@ public class CardDbCardMockTestCase extends CardMockTestCase {
         PaperCard landCard = this.cardDb.getCard(snowCoveredLand);
         assertNotNull(landCard);
         assertEquals(landCard.getName(), snowCoveredLand);
-        assertEquals(landCard.getEdition(), "J22");
+        assertEquals(landCard.getEdition(), "MB2");
 
         this.cardDb.setCardArtPreference(true, true);
         assertEquals(this.cardDb.getCardArtPreference(),
@@ -1958,11 +1937,12 @@ public class CardDbCardMockTestCase extends CardMockTestCase {
             assertEquals(loyalUnicorn, legacyLoyalUnicorn);
 
         // Selfless Squire: Available in Forge in COMMANDER 2021; Treasure Chest;
-        // COMMANDER 2016; The Lord of the Rings: Tales of Middle-earth Commander
+        // COMMANDER 2016; The Lord of the Rings: Tales of Middle-earth Commander;
+        // Murders at Karlov Manor Commander
         String cnSelflessSquire = "Selfless Squire";
         PaperCard selflessSquire = this.cardDb.getCard(cnSelflessSquire);
         assertNotNull(selflessSquire);
-        assertEquals(selflessSquire.getEdition(), "LTC"); // The Lord of the Rings: Tales of Middle-earth Commander
+        assertEquals(selflessSquire.getEdition(), "MKC"); // Murders at Karlov Manor Commander
 
         PaperCard legacySelflessSquire = this.legacyCardDb.getCardFromEdition(cnSelflessSquire,
                 LegacyCardDb.LegacySetPreference.Latest);
@@ -2003,10 +1983,11 @@ public class CardDbCardMockTestCase extends CardMockTestCase {
             assertEquals(loyalUnicorn, legacyLoyalUnicorn);
 
         // Selfless Squire: Available in Forge in COMMANDER 2021; Treasure Chest;
-        // COMMANDER 2016; The Lord of the Rings: Tales of Middle-earth Commander
+        // COMMANDER 2016; The Lord of the Rings: Tales of Middle-earth Commander;
+        // Murders at Karlov Manor Commander
         selflessSquire = this.cardDb.getCard(cnSelflessSquire);
         assertNotNull(selflessSquire);
-        assertEquals(selflessSquire.getEdition(), "LTC");
+        assertEquals(selflessSquire.getEdition(), "MKC");
 
         legacySelflessSquire = this.legacyCardDb.getCardFromEdition(cnSelflessSquire,
                 LegacyCardDb.LegacySetPreference.LatestCoreExp);
@@ -2027,7 +2008,7 @@ public class CardDbCardMockTestCase extends CardMockTestCase {
 
         militantAngel = this.cardDb.getCard(cnMilitantAngel);
         assertNotNull(militantAngel);
-        assertEquals(militantAngel.getEdition(), "GNT");
+        assertEquals(militantAngel.getEdition(), "PZ2");
 
         legacyMilitantAngel = this.legacyCardDb.getCardFromEdition(cnMilitantAngel,
                 LegacyCardDb.LegacySetPreference.Earliest);
@@ -2037,7 +2018,7 @@ public class CardDbCardMockTestCase extends CardMockTestCase {
         // Loyal Unicorn: Available in Forge in The List and COMMANDER 2018
         loyalUnicorn = this.cardDb.getCard(cnLoyalUnicorn);
         assertNotNull(loyalUnicorn);
-        assertEquals(loyalUnicorn.getEdition(), "C18");
+        assertEquals(loyalUnicorn.getEdition(), "PZ2");
 
         legacyLoyalUnicorn = this.legacyCardDb.getCardFromEdition(cnLoyalUnicorn,
                 LegacyCardDb.LegacySetPreference.Earliest);
@@ -2070,7 +2051,7 @@ public class CardDbCardMockTestCase extends CardMockTestCase {
 
         militantAngel = this.cardDb.getCard(cnMilitantAngel);
         assertNotNull(militantAngel);
-        assertEquals(militantAngel.getEdition(), "GNT");
+        assertEquals(militantAngel.getEdition(), "PZ2");
 
         legacyMilitantAngel = this.legacyCardDb.getCardFromEdition(cnMilitantAngel,
                 LegacyCardDb.LegacySetPreference.EarliestCoreExp);
@@ -2104,7 +2085,7 @@ public class CardDbCardMockTestCase extends CardMockTestCase {
     public void testGetCardFromUnknownSet() {
         String unknownCardName = "Unknown Card Name";
         PaperCard unknownCard = new PaperCard(CardRules.getUnsupportedCardNamed(unknownCardName),
-                CardEdition.UNKNOWN.getCode(), CardRarity.Unknown);
+                CardEdition.UNKNOWN_CODE, CardRarity.Unknown);
         this.cardDb.addCard(unknownCard);
         assertTrue(this.cardDb.getAllCards().contains(unknownCard));
         assertNotNull(this.cardDb.getAllCards(unknownCardName));
@@ -2113,7 +2094,7 @@ public class CardDbCardMockTestCase extends CardMockTestCase {
         PaperCard retrievedPaperCard = this.cardDb.getCard(unknownCardName);
         assertNotNull(retrievedPaperCard);
         assertEquals(retrievedPaperCard.getName(), unknownCardName);
-        assertEquals(retrievedPaperCard.getEdition(), CardEdition.UNKNOWN.getCode());
+        assertEquals(retrievedPaperCard.getEdition(), CardEdition.UNKNOWN_CODE);
     }
 
     @Test

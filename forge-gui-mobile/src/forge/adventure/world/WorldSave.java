@@ -2,7 +2,11 @@ package forge.adventure.world;
 
 import forge.adventure.data.DifficultyData;
 import forge.adventure.player.AdventurePlayer;
+import forge.adventure.pointofintrest.PointOfInterest;
 import forge.adventure.pointofintrest.PointOfInterestChanges;
+import forge.adventure.scene.MapViewScene;
+import forge.adventure.scene.SaveLoadScene;
+import forge.adventure.stage.PointOfInterestMapSprite;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.AdventureModes;
 import forge.adventure.util.Config;
@@ -78,7 +82,8 @@ public class WorldSave   {
 
                 } catch (Exception e) {
                     System.err.println("Generating New World");
-                    currentSave.world.generateNew(0);
+                    if (!currentSave.world.generateNew(0))
+                        return false;
                 }
 
                 currentSave.onLoadList.emit();
@@ -100,7 +105,7 @@ public class WorldSave   {
             return QUICK_SAVE_SLOT;
         if (!name.contains("_") || !name.endsWith(".sav"))
             return INVALID_SAVE_SLOT;
-        return Integer.valueOf(name.split("_")[0]);
+        return Integer.parseInt(name.split("_")[0]);
     }
 
     static public String filename(int slot) {
@@ -137,10 +142,10 @@ public class WorldSave   {
     }
 
     public boolean autoSave() {
-        return save("auto save",AUTO_SAVE_SLOT);
+        return save("auto save"+ SaveLoadScene.instance().getSaveFileSuffix(),AUTO_SAVE_SLOT);
     }
     public boolean quickSave() {
-        return save("quick save",QUICK_SAVE_SLOT);
+        return save("quick save"+ SaveLoadScene.instance().getSaveFileSuffix(),QUICK_SAVE_SLOT);
     }
     public boolean quickLoad() {
         return load(QUICK_SAVE_SLOT);
@@ -179,6 +184,22 @@ public class WorldSave   {
 
     public void clearChanges() {
         pointOfInterestChanges.clear();
+    }
+
+    public void clearBookmarks() {
+        for (PointOfInterest poi : currentSave.world.getAllPointOfInterest()) {
+            if (poi == null)
+                continue;
+            PointOfInterestMapSprite mapSprite = WorldStage.getInstance().getMapSprite(poi);
+            if (mapSprite != null)
+                mapSprite.setBookmarked(false, poi);
+            PointOfInterestChanges p = pointOfInterestChanges.get(poi.getID());
+            if (p == null)
+                continue;
+            p.setIsBookmarked(false);
+            p.save();
+        }
+        MapViewScene.instance().clearBookMarks();
     }
 
 }

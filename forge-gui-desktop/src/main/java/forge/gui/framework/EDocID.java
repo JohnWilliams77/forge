@@ -5,16 +5,7 @@ package forge.gui.framework;
 
 import com.google.common.collect.ObjectArrays;
 
-import forge.screens.deckeditor.views.VAllDecks;
-import forge.screens.deckeditor.views.VBrawlDecks;
-import forge.screens.deckeditor.views.VCardCatalog;
-import forge.screens.deckeditor.views.VCommanderDecks;
-import forge.screens.deckeditor.views.VCurrentDeck;
-import forge.screens.deckeditor.views.VDeckgen;
-import forge.screens.deckeditor.views.VOathbreakerDecks;
-import forge.screens.deckeditor.views.VProbabilities;
-import forge.screens.deckeditor.views.VStatistics;
-import forge.screens.deckeditor.views.VTinyLeadersDecks;
+import forge.screens.deckeditor.views.*;
 import forge.screens.home.gauntlet.*;
 import forge.screens.home.online.VSubmenuOnlineLobby;
 import forge.screens.home.puzzle.VSubmenuPuzzleCreate;
@@ -61,6 +52,7 @@ public enum EDocID {
     EDITOR_BRAWL (VBrawlDecks.SINGLETON_INSTANCE),
     EDITOR_TINY_LEADERS (VTinyLeadersDecks.SINGLETON_INSTANCE),
     EDITOR_OATHBREAKER (VOathbreakerDecks.SINGLETON_INSTANCE),
+    EDITOR_LOG(VEditorLog.SINGLETON_INSTANCE),
 
     WORKSHOP_CATALOG (VWorkshopCatalog.SINGLETON_INSTANCE),
     WORKSHOP_CARDDESIGNER (VCardDesigner.SINGLETON_INSTANCE),
@@ -76,7 +68,8 @@ public enum EDocID {
     HOME_GAUNTLETBUILD (VSubmenuGauntletBuild.SINGLETON_INSTANCE),
     HOME_GAUNTLETLOAD (VSubmenuGauntletLoad.SINGLETON_INSTANCE),
     HOME_GAUNTLETQUICK (VSubmenuGauntletQuick.SINGLETON_INSTANCE),
-    HOME_GAUNTLETCOMMANDER (VSubmenuGauntletCommander.SINGLETON_INSTANCE),
+    HOME_GAUNTLETCOMMANDERQUICK (VSubmenuGauntletCommanderQuick.SINGLETON_INSTANCE),
+    HOME_GAUNTLETCOMMANDERBUILD (VSubmenuGauntletCommanderBuild.SINGLETON_INSTANCE),
     HOME_GAUNTLETCONTESTS (VSubmenuGauntletContests.SINGLETON_INSTANCE),
     HOME_PREFERENCES (VSubmenuPreferences.SINGLETON_INSTANCE),
     HOME_ACHIEVEMENTS (VSubmenuAchievements.SINGLETON_INSTANCE),
@@ -95,6 +88,7 @@ public enum EDocID {
     REPORT_MESSAGE (),
     REPORT_STACK (),
     REPORT_COMBAT (),
+    REPORT_DEPENDENCIES (),
     REPORT_LOG (),
 
     DEV_MODE (),

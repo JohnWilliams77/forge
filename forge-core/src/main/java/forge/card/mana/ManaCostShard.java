@@ -52,6 +52,13 @@ public enum ManaCostShard {
     R2(ManaAtom.RED | ManaAtom.OR_2_GENERIC, "2/R", "2R"),
     G2(ManaAtom.GREEN | ManaAtom.OR_2_GENERIC, "2/G", "2G"),
 
+    /* Or Colorless */
+    CW(ManaAtom.WHITE | ManaAtom.COLORLESS, "C/W", "CW"),
+    CU(ManaAtom.BLUE | ManaAtom.COLORLESS, "C/U", "CU"),
+    CB(ManaAtom.BLACK | ManaAtom.COLORLESS, "C/B", "CB"),
+    CR(ManaAtom.RED | ManaAtom.COLORLESS, "C/R", "CR"),
+    CG(ManaAtom.GREEN | ManaAtom.COLORLESS, "C/G", "CG"),
+
     // Snow and colorless
     S(ManaAtom.IS_SNOW, "S"),
     GENERIC(ManaAtom.GENERIC, "1"),
@@ -87,6 +94,7 @@ public enum ManaCostShard {
     /** The cmpc. */
     private final float cmpc;
     private final String stringValue;
+    private final String shortStringValue;
 
     /** The image key. */
     private final String imageKey;
@@ -118,6 +126,7 @@ public enum ManaCostShard {
         this.cmc = this.getCMC();
         this.cmpc = this.getCmpCost();
         this.stringValue = "{" + sValue + "}";
+        this.shortStringValue = sValue;
         this.imageKey = imgKey;
     }
 
@@ -225,14 +234,19 @@ public enum ManaCostShard {
         return ManaCostShard.valueOf(atoms);
     }
 
-    /*
-     * (non-Javadoc)
-     * 
-     * @see java.lang.Object#toString()
+    /**
+     * @return the string representation of this shard - e.g. "{W}" "{2/U}" "{G/P}"
      */
     @Override
     public final String toString() {
         return this.stringValue;
+    }
+
+    /**
+     * @return The string representation of this shard without brackets - e.g. "W" "2/U" "G/P"
+     */
+    public final String toShortString() {
+        return this.shortStringValue;
     }
 
     /**
@@ -298,8 +312,12 @@ public enum ManaCostShard {
         return BinaryUtil.bitCount(this.shard & COLORS_SUPERPOSITION) == 1;
     }
     
-    public boolean isHybrid() {
+    public boolean isMultiColor() {
         return BinaryUtil.bitCount(this.shard & COLORS_SUPERPOSITION) == 2;
+    }
+
+    public boolean isColorless() {
+        return isOfKind(ManaAtom.COLORLESS);
     }
 
     public boolean isGeneric() {

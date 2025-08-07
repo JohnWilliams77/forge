@@ -22,9 +22,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-
-import com.google.common.base.Function;
-import com.google.common.base.Supplier;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 import forge.deck.Deck;
 import forge.deck.DeckGroup;
@@ -112,23 +111,13 @@ public final class CEditorQuestLimited extends CDeckEditor<DeckGroup> {
         this.setCatalogManager(catalogManager);
         this.setDeckManager(deckManager);
 
-        final Supplier<DeckGroup> newCreator = new Supplier<DeckGroup>() {
-            @Override
-            public DeckGroup get() {
-                return new DeckGroup("");
-            }
-        };
+        final Supplier<DeckGroup> newCreator = DeckGroup::new;
 
         this.controller = new DeckController<>(questData0.getDraftDecks(), this, newCreator);
         controller.getView().getDeckManager().setup(ItemManagerConfig.DRAFT_POOL);
         controller.setModel(questData0.getDraftDecks().get(QuestEventDraft.DECK_NAME));
 
-        getBtnAddBasicLands().setCommand(new UiCommand() {
-            @Override
-            public void run() {
-                CEditorLimited.addBasicLands(CEditorQuestLimited.this);
-            }
-        });
+        getBtnAddBasicLands().setCommand((UiCommand) () -> CEditorLimited.addBasicLands(CEditorQuestLimited.this));
     }
 
     // fills number of decks using each card
@@ -138,7 +127,7 @@ public final class CEditorQuestLimited extends CDeckEditor<DeckGroup> {
             for (final Entry<PaperCard, Integer> e : deck.getMain()) {
                 final PaperCard card = e.getKey();
                 final Integer amount = result.get(card);
-                result.put(card, Integer.valueOf(amount == null ? 1 : 1 + amount.intValue()));
+                result.put(card, amount == null ? 1 : 1 + amount);
             }
         }
         return result;

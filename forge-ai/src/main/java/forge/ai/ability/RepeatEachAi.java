@@ -1,24 +1,16 @@
 package forge.ai.ability;
 
-import java.util.List;
-import java.util.Map;
-
-import com.google.common.base.Predicate;
-
-import forge.ai.ComputerUtilCard;
-import forge.ai.SpecialCardAi;
-import forge.ai.SpellAbilityAi;
+import forge.ai.*;
 import forge.game.ability.AbilityUtils;
-import forge.game.card.Card;
-import forge.game.card.CardCollection;
-import forge.game.card.CardLists;
-import forge.game.card.CardPredicates.Presets;
-import forge.game.card.CardUtil;
+import forge.game.card.*;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
 import forge.util.TextUtil;
+
+import java.util.List;
+import java.util.Map;
 
 
 public class RepeatEachAi extends SpellAbilityAi {
@@ -27,43 +19,33 @@ public class RepeatEachAi extends SpellAbilityAi {
      * @see forge.card.abilityfactory.SpellAiLogic#canPlayAI(forge.game.player.Player, forge.card.spellability.SpellAbility)
      */
     @Override
-    protected boolean canPlayAI(Player aiPlayer, SpellAbility sa) {
+    protected AiAbilityDecision canPlay(Player aiPlayer, SpellAbility sa) {
         String logic = sa.getParam("AILogic");
 
         if ("PriceOfProgress".equals(logic)) {
             return SpecialCardAi.PriceOfProgress.consider(aiPlayer, sa);
         } else if ("Never".equals(logic)) {
-            return false;
+            return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
         } else if ("CloneAllTokens".equals(logic)) {
-            List<Card> humTokenCreats = CardLists.filter(aiPlayer.getOpponents().getCreaturesInPlay(), Presets.TOKEN);
+            List<Card> humTokenCreats = CardLists.filter(aiPlayer.getOpponents().getCreaturesInPlay(), CardPredicates.TOKEN);
             List<Card> compTokenCreats = aiPlayer.getTokensInPlay();
 
-            return compTokenCreats.size() > humTokenCreats.size();
+            if (compTokenCreats.size() > humTokenCreats.size()) {
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
+            } else {
+                return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
+            }
         } else if ("BalanceLands".equals(logic)) {
             if (aiPlayer.getLandsInPlay().size() >= 5) {
-                return false;
+                return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
             }
 
             List<Player> opponents = aiPlayer.getOpponents();
             for(Player opp : opponents) {
                 if (opp.getLandsInPlay().size() < 4) {
-                    return false;
+                    return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
                 }
             }
-        } else if ("OpponentHasCreatures".equals(logic)) { //TODO convert this to NeedsToPlayVar
-            for (Player opp : aiPlayer.getOpponents()) {
-                if (!opp.getCreaturesInPlay().isEmpty()) {
-                    return true;
-                }
-            }
-            return false;
-        } else if ("OpponentHasMultipleCreatures".equals(logic)) {
-            for (Player opp : aiPlayer.getOpponents()) {
-                if (opp.getCreaturesInPlay().size() > 1) {
-                    return true;
-                }
-            }
-            return false;
         } else if ("AllPlayerLoseLife".equals(logic)) {
             final Card source = sa.getHostCard();
             SpellAbility repeat = sa.getAdditionalAbility("RepeatSubAbility");
@@ -78,13 +60,13 @@ public class RepeatEachAi extends SpellAbilityAi {
 
                 // if playing it would cause AI to lose most life, don't do that
                 if (lossYou + 5 > aiPlayer.getLife()) {
-                    return false;
+                    return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
                 }
             }
 
             boolean hitOpp = false;
             // need a copy for source so YouCtrl can be faked
-            final Card sourceLKI = CardUtil.getLKICopy(source);
+            final Card sourceLKI = CardCopyService.getLKICopy(source);
 
             // check if any opponent is affected
             for (final Player opp : aiPlayer.getOpponents()) {
@@ -96,26 +78,29 @@ public class RepeatEachAi extends SpellAbilityAi {
                     }
                 }
             }
-            // would not hit opponent, don't do that
-            return hitOpp;
+
+            if (hitOpp) {
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
+            } else {
+                return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
+            }
         } else if ("EquipAll".equals(logic)) {
             if (aiPlayer.getGame().getPhaseHandler().is(PhaseType.MAIN1, aiPlayer)) {
-                final CardCollection unequipped = CardLists.filter(aiPlayer.getCardsIn(ZoneType.Battlefield), new Predicate<Card>() {
-                    @Override
-                    public boolean apply(Card card) {
-                        return card.isEquipment() && card.getAttachedTo() != sa.getHostCard();
-                    }
-                });
+                final CardCollection unequipped = CardLists.filter(aiPlayer.getCardsIn(ZoneType.Battlefield), card -> card.isEquipment() && card.getAttachedTo() != sa.getHostCard());
 
-                return !unequipped.isEmpty();
+                if (!unequipped.isEmpty()) {
+                    return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
+                } else {
+                    return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
+                }
             }
 
-            return false;
+            return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
         }
 
         // TODO Add some normal AI variability here
 
-        return true;
+        return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
     }
 
     @Override

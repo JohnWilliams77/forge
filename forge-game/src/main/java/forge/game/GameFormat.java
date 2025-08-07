@@ -17,21 +17,19 @@
  */
 package forge.game;
 
-import com.google.common.base.Function;
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import forge.StaticData;
 import forge.card.CardDb;
 import forge.card.CardEdition;
-import forge.card.CardEdition.CardInSet;
+import forge.card.CardEdition.EditionEntry;
 import forge.card.CardRarity;
 import forge.deck.CardPool;
 import forge.deck.Deck;
-import forge.item.IPaperCard;
 import forge.item.PaperCard;
+import forge.item.PaperCardPredicates;
 import forge.util.FileSection;
 import forge.util.FileUtil;
+import forge.util.IterableUtil;
 import forge.util.storage.StorageBase;
 import forge.util.storage.StorageReaderRecursiveFolderWithUserFolder;
 
@@ -41,6 +39,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.Map.Entry;
+import java.util.function.Predicate;
 
 
 public class GameFormat implements Comparable<GameFormat> {
@@ -139,17 +138,17 @@ public class GameFormat implements Comparable<GameFormat> {
         this.filterPrinted = this.buildFilterPrinted();
     }
     protected Predicate<PaperCard> buildFilter(boolean printed) {
-        Predicate<PaperCard> p = Predicates.not(IPaperCard.Predicates.names(this.getBannedCardNames()));
+        Predicate<PaperCard> p = PaperCardPredicates.names(this.getBannedCardNames()).negate();
 
         if (FormatSubType.ARENA.equals(this.getFormatSubType())) {
-            p = Predicates.and(p, Predicates.not(IPaperCard.Predicates.Presets.IS_UNREBALANCED));
+            p = p.and(PaperCardPredicates.IS_UNREBALANCED.negate());
         } else {
-            p = Predicates.and(p, Predicates.not(IPaperCard.Predicates.Presets.IS_REBALANCED));
+            p = p.and(PaperCardPredicates.IS_REBALANCED.negate());
         }
 
         if (!this.getAllowedSetCodes().isEmpty()) {
-            p = Predicates.and(p, printed ?
-                    IPaperCard.Predicates.printedInSets(this.getAllowedSetCodes(), printed) :
+            p = p.and(printed ?
+                    PaperCardPredicates.printedInSets(this.getAllowedSetCodes(), printed) :
                     StaticData.instance().getCommonCards().wasPrintedInSets(this.getAllowedSetCodes()));
         }
         if (!this.getAllowedRarities().isEmpty()) {
@@ -157,10 +156,10 @@ public class GameFormat implements Comparable<GameFormat> {
             for (CardRarity cr: this.getAllowedRarities()) {
                 crp.add(StaticData.instance().getCommonCards().wasPrintedAtRarity(cr));
             }
-            p = Predicates.and(p, Predicates.or(crp));
+            p = p.and(IterableUtil.<PaperCard>or(crp));
         }
         if (!this.getAdditionalCards().isEmpty()) {
-            p = Predicates.or(p, IPaperCard.Predicates.names(this.getAdditionalCards()));
+            p = p.or(PaperCardPredicates.names(this.getAdditionalCards()));
         }
         return p;
     }
@@ -227,9 +226,9 @@ public class GameFormat implements Comparable<GameFormat> {
         for (String setCode : allowedSetCodes_ro) {
             CardEdition edition = StaticData.instance().getEditions().get(setCode);
             if (edition != null) {
-                for (CardInSet card : edition.getAllCardsInSet()) {
-                    if (!bannedCardNames_ro.contains(card.name)) {
-                        PaperCard pc = commonCards.getCard(card.name, setCode, card.collectorNumber);
+                for (EditionEntry card : edition.getObtainableCards()) {
+                    if (!bannedCardNames_ro.contains(card.name())) {
+                        PaperCard pc = commonCards.getCard(card.name(), setCode, card.collectorNumber());
                         if (pc != null) {
                             cards.add(pc);
                         }
@@ -265,7 +264,7 @@ public class GameFormat implements Comparable<GameFormat> {
         {
             final List<PaperCard> erroneousCI = new ArrayList<>();
             for (Entry<PaperCard, Integer> poolEntry : allCards) {
-                if (!getFilterRules().apply(poolEntry.getKey())) {
+                if (!getFilterRules().test(poolEntry.getKey())) {
                     erroneousCI.add(poolEntry.getKey());
                 }
             }
@@ -317,13 +316,6 @@ public class GameFormat implements Comparable<GameFormat> {
         return this.name;
     }
 
-    public static final Function<GameFormat, String> FN_GET_NAME = new Function<GameFormat, String>() {
-        @Override
-        public String apply(GameFormat arg1) {
-            return arg1.getName();
-        }
-    };
-
     @Override
     public int compareTo(GameFormat other) {
         if (null == other) {
@@ -367,10 +359,11 @@ public class GameFormat implements Comparable<GameFormat> {
             coreFormats.add("Oathbreaker.txt");
             coreFormats.add("Premodern.txt");
             coreFormats.add("Pauper.txt");
+            coreFormats.add("PreDH.txt");
         }
         
         public Reader(File forgeFormats, File customFormats, boolean includeArchived) {
-            super(forgeFormats, customFormats, GameFormat.FN_GET_NAME);
+            super(forgeFormats, customFormats, GameFormat::getName);
             this.includeArchived=includeArchived;
         }
 
@@ -409,7 +402,7 @@ public class GameFormat implements Comparable<GameFormat> {
             } catch (Exception e) {
                 formatsubType = FormatSubType.CUSTOM;
             }
-            Integer idx = section.getInt("order");
+            int idx = section.getInt("order");
             String dateStr = section.get("effective");
             if (dateStr == null){
                 dateStr = DEFAULTDATE;
@@ -461,12 +454,7 @@ public class GameFormat implements Comparable<GameFormat> {
             return TXT_FILE_FILTER;
         }
 
-        public static final FilenameFilter TXT_FILE_FILTER = new FilenameFilter() {
-            @Override
-            public boolean accept(final File dir, final String name) {
-                return name.endsWith(".txt") || dir.isDirectory();
-            }
-        };
+        public static final FilenameFilter TXT_FILE_FILTER = (dir, name) -> name.endsWith(".txt") || dir.isDirectory();
     }
 
     public static class Collection extends StorageBase<GameFormat> {
@@ -477,9 +465,8 @@ public class GameFormat implements Comparable<GameFormat> {
             super("Format collections", reader);
             naturallyOrdered = reader.naturallyOrdered;
             reverseDateOrdered = new ArrayList<>(naturallyOrdered);
-            Collections.sort(naturallyOrdered);
-            //Why this refactor doesnt work on some android phones? -> reverseDateOrdered.sort(new InverseDateComparator());
-            Collections.sort(reverseDateOrdered, new InverseDateComparator());
+            naturallyOrdered.sort(Comparator.naturalOrder());
+            reverseDateOrdered.sort(new InverseDateComparator());
         }
 
         public Iterable<GameFormat> getOrderedList() {
@@ -600,13 +587,11 @@ public class GameFormat implements Comparable<GameFormat> {
             return this.map.get("Historic");
         }
 
-        public GameFormat getModern() {
-            return this.map.get("Modern");
-        }
+        public GameFormat getModern() { return this.map.get("Modern"); }
 
-        public GameFormat getVintage() {
-            return this.map.get("Vintage");
-        }
+        public GameFormat getLegacy() { return this.map.get("Legacy"); }
+
+        public GameFormat getVintage() { return this.map.get("Vintage"); }
 
         public GameFormat getPremodern() { return this.map.get("Premodern"); }
 
@@ -627,7 +612,7 @@ public class GameFormat implements Comparable<GameFormat> {
         public Set<GameFormat> getAllFormatsOfCard(PaperCard card) {
             Set<GameFormat> result = new HashSet<>();
             for (GameFormat gf : naturallyOrdered) {
-                if (gf.getFilterRules().apply(card)) {
+                if (gf.getFilterRules().test(card)) {
                     result.add(gf);
                 }
             }
@@ -696,10 +681,5 @@ public class GameFormat implements Comparable<GameFormat> {
         }
     }
 
-    public final Predicate<CardEdition> editionLegalPredicate = new Predicate<CardEdition>() {
-        @Override
-        public boolean apply(final CardEdition subject) {
-            return GameFormat.this.isSetLegal(subject.getCode());
-        }
-    };
+    public final Predicate<CardEdition> editionLegalPredicate = subject -> GameFormat.this.isSetLegal(subject.getCode());
 }

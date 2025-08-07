@@ -2,6 +2,7 @@ package forge.game.ability;
 
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 import forge.game.ability.effects.*;
@@ -17,11 +18,14 @@ public enum ApiType {
     AddOrRemoveCounter (CountersPutOrRemoveEffect.class),
     AddPhase (AddPhaseEffect.class),
     AddTurn (AddTurnEffect.class),
+    AdvanceCrank (AdvanceCrankEffect.class),
+    AlterAttribute (AlterAttributeEffect.class),
     Amass (AmassEffect.class),
     Animate (AnimateEffect.class),
     AnimateAll (AnimateAllEffect.class),
     Attach (AttachEffect.class),
     Ascend (AscendEffect.class),
+    AssembleContraption (AssembleContraptionEffect.class),
     AssignGroup (AssignGroupEffect.class),
     Balance (BalanceEffect.class),
     BecomeMonarch (BecomeMonarchEffect.class),
@@ -32,6 +36,7 @@ public enum ApiType {
     Branch (BranchEffect.class),
     Camouflage (CamouflageEffect.class),
     ChangeCombatants (ChangeCombatantsEffect.class),
+    ChangeSpeed (ChangeSpeedEffect.class),
     ChangeTargets (ChangeTargetsEffect.class),
     ChangeText (ChangeTextEffect.class),
     ChangeX (ChangeXEffect.class),
@@ -48,11 +53,12 @@ public enum ApiType {
     ChooseSector (ChooseSectorEffect.class),
     ChooseSource (ChooseSourceEffect.class),
     ChooseType (ChooseTypeEffect.class),
+    ClaimThePrize (ClaimThePrizeEffect.class),
     Clash (ClashEffect.class),
     ClassLevelUp (ClassLevelUpEffect.class),
     Cleanup (CleanUpEffect.class),
+    Cloak (CloakEffect.class),
     Clone (CloneEffect.class),
-    CompanionChoose (ChooseCompanionEffect.class),
     Connive (ConniveEffect.class),
     CopyPermanent (CopyPermanentEffect.class),
     CopySpellAbility (CopySpellAbilityEffect.class),
@@ -63,7 +69,6 @@ public enum ApiType {
     DealDamage (DamageDealEffect.class),
     DayTime (DayTimeEffect.class),
     Debuff (DebuffEffect.class),
-    DeclareCombatants (DeclareCombatantsEffect.class),
     DelayedTrigger (DelayedTriggerEffect.class),
     Destroy (DestroyEffect.class),
     DestroyAll (DestroyAllEffect.class),
@@ -71,6 +76,7 @@ public enum ApiType {
     DigMultiple (DigMultipleEffect.class),
     DigUntil (DigUntilEffect.class),
     Discard (DiscardEffect.class),
+    Discover (DiscoverEffect.class),
     DrainMana (DrainManaEffect.class),
     Draft (DraftEffect.class),
     Draw (DrawEffect.class),
@@ -79,12 +85,14 @@ public enum ApiType {
     Encode (EncodeEffect.class),
     EndCombatPhase (EndCombatPhaseEffect.class),
     EndTurn (EndTurnEffect.class),
+    Endure (EndureEffect.class),
     ExchangeLife (LifeExchangeEffect.class),
     ExchangeLifeVariant (LifeExchangeVariantEffect.class),
     ExchangeControl (ControlExchangeEffect.class),
     ExchangeControlVariant (ControlExchangeVariantEffect.class),
     ExchangePower (PowerExchangeEffect.class),
     ExchangeZone (ZoneExchangeEffect.class),
+    ExchangeTextBox (TextBoxExchangeEffect.class),
     Explore (ExploreEffect.class),
     Fight (FightEffect.class),
     FlipACoin (FlipCoinEffect.class),
@@ -98,6 +106,7 @@ public enum ApiType {
     GenericChoice (ChooseGenericEffect.class),
     Goad (GoadEffect.class),
     Haunt (HauntEffect.class),
+    Heist (HeistEffect.class),
     Investigate (InvestigateEffect.class),
     Intensify (IntensifyEffect.class),
     ImmediateTrigger (ImmediateTriggerEffect.class),
@@ -105,11 +114,13 @@ public enum ApiType {
     Learn (LearnEffect.class),
     LookAt (LookAtEffect.class),
     LoseLife (LifeLoseEffect.class),
+    LosePerpetual (LosePerpetualEffect.class),
     LosesGame (GameLossEffect.class),
     MakeCard (MakeCardEffect.class),
     Mana (ManaEffect.class),
     ManaReflected (ManaReflectedEffect.class),
     Manifest (ManifestEffect.class),
+    ManifestDread (ManifestDreadEffect.class),
     Meld (MeldEffect.class),
     Mill (MillEffect.class),
     MoveCounter (CountersMoveEffect.class),
@@ -118,7 +129,8 @@ public enum ApiType {
     MustBlock (MustBlockEffect.class),
     Mutate (MutateEffect.class),
     NameCard (ChooseCardNameEffect.class),
-    NoteCounters (CountersNoteEffect.class),
+    //NoteCounters (CountersNoteEffect.class),
+    OpenAttraction (OpenAttractionEffect.class),
     PeekAndReveal (PeekAndRevealEffect.class),
     PermanentCreature (PermanentCreatureEffect.class),
     PermanentNoncreature (PermanentNoncreatureEffect.class),
@@ -128,7 +140,6 @@ public enum ApiType {
     PlayLandVariant (PlayLandVariantEffect.class),
     Poison (PoisonEffect.class),
     PreventDamage (DamagePreventEffect.class),
-    PreventDamageAll (DamagePreventAllEffect.class),
     Proliferate (CountersProliferateEffect.class),
     Protection (ProtectEffect.class),
     ProtectionAll (ProtectAllEffect.class),
@@ -136,9 +147,9 @@ public enum ApiType {
     PumpAll (PumpAllEffect.class),
     PutCounter (CountersPutEffect.class),
     PutCounterAll (CountersPutAllEffect.class),
+    Radiation (RadiationEffect.class),
     RearrangeTopOfLibrary (RearrangeTopOfLibraryEffect.class),
     Regenerate (RegenerateEffect.class),
-    RegenerateAll (RegenerateAllEffect.class),
     Regeneration (RegenerationEffect.class),
     RemoveCounter (CountersRemoveEffect.class),
     RemoveCounterAll (CountersRemoveAllEffect.class),
@@ -158,7 +169,6 @@ public enum ApiType {
     Reveal (RevealEffect.class),
     RevealHand (RevealHandEffect.class),
     ReverseTurnOrder (ReverseTurnOrderEffect.class),
-
     RingTemptsYou (RingTemptsYouEffect.class),
     RollDice (RollDiceEffect.class),
     RollPlanarDice (RollPlanarDiceEffect.class),
@@ -182,23 +192,27 @@ public enum ApiType {
     TapAll (TapAllEffect.class),
     TapOrUntap (TapOrUntapEffect.class),
     TapOrUntapAll (TapOrUntapAllEffect.class),
-    Token (TokenEffect.class, false),
+    TimeTravel (TimeTravelEffect.class),
+    Token (TokenEffect.class),
     TwoPiles (TwoPilesEffect.class),
     Unattach (UnattachEffect.class),
     UnattachAll (UnattachAllEffect.class),
+    UnlockDoor (UnlockDoorEffect.class),
     Untap (UntapEffect.class),
     UntapAll (UntapAllEffect.class),
     Venture (VentureEffect.class),
+    VillainousChoice (VillainousChoiceEffect.class),
     Vote (VoteEffect.class),
     WinsGame (GameWinEffect.class),
 
     BlankLine (BlankLineEffect.class),
     DamageResolve (DamageResolveEffect.class),
     ChangeZoneResolve (ChangeZoneResolveEffect.class),
+    CompanionChoose (CharmEffect.class),
     InternalLegendaryRule (CharmEffect.class),
     InternalIgnoreEffect (CharmEffect.class),
-    UpdateRemember (UpdateRememberEffect.class);
-
+    InternalRadiation (InternalRadiationEffect.class),
+    ;
 
     private final SpellAbilityEffect instanceEffect;
     private final Class<? extends SpellAbilityEffect> clsEffect;
@@ -206,9 +220,9 @@ public enum ApiType {
     private static final Map<String, ApiType> allValues = new HashMap<>();
 
     static {
-    	for (ApiType t : ApiType.values()) {
-    		allValues.put(t.name().toLowerCase(), t);
-    	}
+        for (ApiType t : ApiType.values()) {
+            allValues.put(t.name().toLowerCase(Locale.ENGLISH), t);
+        }
     }
 
     ApiType(Class<? extends SpellAbilityEffect> clsEf) { this(clsEf, true); }
@@ -218,7 +232,7 @@ public enum ApiType {
     }
 
     public static ApiType smartValueOf(String value) {
-        ApiType v = allValues.get(value.toLowerCase());
+        ApiType v = allValues.get(value.toLowerCase(Locale.ENGLISH));
         if ( v == null )
             throw new RuntimeException("Element " + value + " not found in ApiType enum");
         return v;

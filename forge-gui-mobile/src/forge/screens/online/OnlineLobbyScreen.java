@@ -57,7 +57,7 @@ public class OnlineLobbyScreen extends LobbyScreen implements IOnlineLobby {
         Forge.back();
         if (msg.length() > 0) {
             FThreads.invokeInBackgroundThread(() -> {
-                final boolean callBackAlwaysTrue = SOptionPane.showOptionDialog(msg, Forge.getLocalizer().getMessage("lblError"), FSkinProp.ICO_WARNING, ImmutableList.of(Forge.getLocalizer().getMessage("lblOk")), 1) == 0;
+                final boolean callBackAlwaysTrue = SOptionPane.showOptionDialog(msg, Forge.getLocalizer().getMessage("lblError"), FSkinProp.ICO_WARNING, ImmutableList.of(Forge.getLocalizer().getMessage("lblOK")), 1) == 0;
                 if (callBackAlwaysTrue) { //to activate online menu popup when player press play online
                     GuiBase.setInterrupted(false);
 
@@ -91,31 +91,39 @@ public class OnlineLobbyScreen extends LobbyScreen implements IOnlineLobby {
             setGameLobby(getLobby());
             //prompt to connect to server when offline lobby activated
             FThreads.invokeInBackgroundThread(() -> {
+                //Not in gui thread
                 final String url = NetConnectUtil.getServerUrl();
                 FThreads.invokeInEdtLater(() -> {
+                    //In GUI thread
                     if (url == null) {
                         closeConn(""); //go back to previous screen if user cancels connection
                         return;
                     }
-
                     final boolean joinServer = url.length() > 0;
                     final String caption = joinServer ?  Forge.getLocalizer().getMessage("lblConnectingToServer") : Forge.getLocalizer().getMessage("lblStartingServer");
                     LoadingOverlay.show(caption, true, () -> {
-                        final ChatMessage result;
+                        //in GUI thread due to above LoadingOverlay.show call executing ThreadUtil.invokeInGameThread(() -> FThreads.invokeInEdtLater(() -> { runnable.run(); ...
+                        final ChatMessage[] result = new ChatMessage[1];
                         final IOnlineChatInterface chatInterface = (IOnlineChatInterface)OnlineScreen.Chat.getScreen();
                         if (joinServer) {
-                            result = NetConnectUtil.join(url, OnlineLobbyScreen.this, chatInterface);
-                            if (result.getMessage() == ForgeConstants.CLOSE_CONN_COMMAND) { //this message is returned via netconnectutil on exception
+                            result[0] = NetConnectUtil.join(url, OnlineLobbyScreen.this, chatInterface);
+                            if (result[0].getMessage() == ForgeConstants.CLOSE_CONN_COMMAND) { //this message is returned via netconnectutil on exception
+                                closeConn(Forge.getLocalizer().getMessage("UnableConnectToServer", url));
+                                return;
+                            } else if (result[0].getMessage() == ForgeConstants.INVALID_HOST_COMMAND) {
                                 closeConn(Forge.getLocalizer().getMessage("lblDetectedInvalidHostAddress", url));
                                 return;
                             }
+                            chatInterface.addMessage(result[0]);
                         }
                         else {
-                            result = NetConnectUtil.host(OnlineLobbyScreen.this, chatInterface);
-                        }
-                        chatInterface.addMessage(result);
-                        if (!joinServer) {
-                            FThreads.invokeInBackgroundThread(() -> NetConnectUtil.copyHostedServerUrl());
+                            FThreads.invokeInBackgroundThread(
+                                    () -> {
+                                        result[0] = NetConnectUtil.host(OnlineLobbyScreen.this, chatInterface);
+                                        chatInterface.addMessage(result[0]);
+                                        NetConnectUtil.copyHostedServerUrl();
+                                    }
+                            );
                         }
                         //update menu buttons
                         OnlineScreen.Lobby.update();

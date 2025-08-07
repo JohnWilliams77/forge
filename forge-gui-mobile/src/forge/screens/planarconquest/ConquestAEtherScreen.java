@@ -3,15 +3,14 @@ package forge.screens.planarconquest;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.utils.Align;
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
 
+import com.google.common.collect.Iterables;
 import forge.Forge;
 import forge.Graphics;
 import forge.animation.ForgeAnimation;
@@ -38,14 +37,9 @@ import forge.model.FModel;
 import forge.screens.FScreen;
 import forge.toolbox.FCardPanel;
 import forge.toolbox.FDisplayObject;
-import forge.toolbox.FEvent;
-import forge.toolbox.FEvent.FEventHandler;
 import forge.toolbox.FLabel;
 import forge.toolbox.GuiChoose;
-import forge.util.Aggregates;
-import forge.util.Callback;
-import forge.util.MyRandom;
-import forge.util.Utils;
+import forge.util.*;
 
 public class ConquestAEtherScreen extends FScreen {
     public static final Color FILTER_BUTTON_COLOR = ConquestMultiverseScreen.LOCATION_BAR_COLOR;
@@ -116,7 +110,7 @@ public class ConquestAEtherScreen extends FScreen {
         filteredPool.clear();
         strictPool.clear();
         for (PaperCard card : pool) {
-            if (predicate == null || predicate.apply(card)) {
+            if (predicate == null || predicate.test(card)) {
                 filteredPool.add(card);
                 if (selectedRarity == card.getRarity()) {
                     strictPool.add(card);
@@ -153,13 +147,8 @@ public class ConquestAEtherScreen extends FScreen {
         CardRarity rarity = btnRarityFilter.selectedOption.getRarity(MyRandom.getRandom().nextDouble());
         while (true) {
             final CardRarity allowedRarity = rarity;
-            rewardPool = Iterables.filter(filteredPool, new Predicate<PaperCard>() {
-                @Override
-                public boolean apply(PaperCard card) {
-                    return allowedRarity == card.getRarity()
-                    || allowedRarity == CardRarity.Rare && card.getRarity() == CardRarity.Special;
-                }
-            });
+            rewardPool = IterableUtil.filter(filteredPool, card -> allowedRarity == card.getRarity()
+                    || allowedRarity == CardRarity.Rare && card.getRarity() == CardRarity.Special);
             if (Iterables.isEmpty(rewardPool)) { //if pool is empty, must reduce rarity and try again
                 if (rarity == minRarity) {
                     return;
@@ -366,20 +355,15 @@ public class ConquestAEtherScreen extends FScreen {
             caption = caption0;
             options = ImmutableList.copyOf(options0);
             setSelectedOption(options.get(0));
-            setCommand(new FEventHandler() {
+            setCommand(e -> GuiChoose.getChoices(Forge.getLocalizer().getMessage("lblSelectCaptionFilter", caption), 0, 1, options, Set.of(selectedOption), null, new Callback<>() {
                 @Override
-                public void handleEvent(FEvent e) {
-                    GuiChoose.getChoices(Forge.getLocalizer().getMessage("lblSelectCaptionFilter", caption), 0, 1, options, selectedOption, null, new Callback<List<AEtherFilter>>() {
-                        @Override
-                        public void run(List<AEtherFilter> result) {
-                            if (!result.isEmpty()) {
-                                setSelectedOption(result.get(0));
-                                updateFilteredPool();
-                            }
-                        }
-                    });
+                public void run(List<AEtherFilter> result) {
+                    if (!result.isEmpty()) {
+                        setSelectedOption(result.get(0));
+                        updateFilteredPool();
+                    }
                 }
-            });
+            }));
         }
 
         private void setSelectedOption(AEtherFilter selectedOption0) {
@@ -406,7 +390,7 @@ public class ConquestAEtherScreen extends FScreen {
             if (predicate == null) {
                 return selectedOption.getPredicate();
             }
-            return Predicates.and(predicate, selectedOption.getPredicate());
+            return predicate.and(selectedOption.getPredicate());
         }
 
         @Override

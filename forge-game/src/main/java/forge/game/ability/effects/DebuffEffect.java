@@ -81,29 +81,17 @@ public class DebuffEffect extends SpellAbilityEffect {
             // gameCard is LKI in that case, the card is not in game anymore
             // or the timestamp did change
             // this should check Self too
-            if (gameCard == null || !tgtC.equalsWithTimestamp(gameCard)) {
+            if (gameCard == null || !tgtC.equalsWithGameTimestamp(gameCard)) {
                 continue;
             }
 
             final List<String> addedKW = Lists.newArrayList();
             final List<String> removedKW = Lists.newArrayList();
-
             if (sa.hasParam("AllSuffixKeywords")) {
                 // this only for walk abilities, may to try better
                 if (sa.getParam("AllSuffixKeywords").equals("walk")) {
-                    for (final KeywordInterface kw : tgtC.getKeywords(Keyword.LANDWALK)) {
+                    for (final KeywordInterface kw : gameCard.getKeywords(Keyword.LANDWALK)) {
                         removedKW.add(kw.getOriginal());
-                    }
-                }
-            }
-
-            // special for Protection:Card.<color>:Protection from <color>:*
-            for (final KeywordInterface inst : tgtC.getUnhiddenKeywords()) {
-                String keyword = inst.getOriginal();
-                if (keyword.startsWith("Protection:")) {
-                    for (final String kw : kws) {
-                        if (keyword.matches("(?i).*:" + kw))
-                            removedKW.add(keyword);
                     }
                 }
             }
@@ -111,49 +99,58 @@ public class DebuffEffect extends SpellAbilityEffect {
             boolean ProtectionFromColor = false;
             for (final String kw : kws) {
                 // Check if some of the Keywords are Protection from <color>
-                if (!ProtectionFromColor && kw.startsWith("Protection from ")) {
-                    for (byte col : MagicColor.WUBRG) {
-                        final String colString = MagicColor.toLongString(col);
-                        if (kw.endsWith(colString.toLowerCase())) {
-                            ProtectionFromColor = true;
+                if (!kw.startsWith("Protection from ")) {
+                    continue;
+                }
+                for (byte col : MagicColor.WUBRG) {
+                    final String colString = MagicColor.toLongString(col);
+                    if (!kw.endsWith(colString)) {
+                        continue;
+                    }
+                    final String wardString = StringUtils.capitalize(colString) + ":" + colString;
+                    for (final KeywordInterface inst : gameCard.getKeywords(Keyword.PROTECTION)) {
+                        // special for the Ward Auras Protection:Card.<Color>:<color>:*
+                        String keyword = inst.getOriginal();
+                        if (keyword.startsWith("Protection:") && keyword.contains(wardString)) {
+                            removedKW.add(keyword);
                         }
                     }
                 }
+                ProtectionFromColor = true;
             }
+            if (ProtectionFromColor) {
+                // Split "Protection from each color" into extra Protection from <color>
+                String allColors = "Protection from each color";
+                if (gameCard.hasKeyword(allColors)) {
+                    final List<String> allColorsProtect = Lists.newArrayList();
 
-            // Split "Protection from all colors" into extra Protection from <color>
-            String allColors = "Protection from all colors";
-            if (ProtectionFromColor && tgtC.hasKeyword(allColors)) {
-                final List<String> allColorsProtect = Lists.newArrayList();
+                    for (byte col : MagicColor.WUBRG) {
+                        allColorsProtect.add("Protection from " + MagicColor.toLongString(col));
 
-                for (byte col : MagicColor.WUBRG) {
-                    allColorsProtect.add("Protection from " + MagicColor.toLongString(col).toLowerCase());
-                }
-                allColorsProtect.removeAll(kws);
-                addedKW.addAll(allColorsProtect);
-                removedKW.add(allColors);
-            }
-
-            // Extra for Spectra Ward
-            allColors = "Protection:Card.nonColorless:Protection from all colors:Aura";
-            if (ProtectionFromColor && tgtC.hasKeyword(allColors)) {
-                final List<String> allColorsProtect = Lists.newArrayList();
-
-                for (byte col : MagicColor.WUBRG) {
-                    final String colString = MagicColor.toLongString(col);
-                    if (!kws.contains("Protection from " + colString)) {
-                        allColorsProtect.add(
-                                "Protection:Card." + StringUtils.capitalize(colString) +
-                                ":Protection from " + colString + ":Aura"
-                                );
                     }
+                    allColorsProtect.removeAll(kws);
+                    addedKW.addAll(allColorsProtect);
+                    removedKW.add(allColors);
                 }
-                addedKW.addAll(allColorsProtect);
-                removedKW.add(allColors);
+
+                // Extra for Spectra Ward
+                allColors = "Protection:Card.nonColorless:each color:Aura";
+                if (gameCard.hasKeyword(allColors)) {
+                    final List<String> allColorsProtect = Lists.newArrayList();
+
+                    for (byte col : MagicColor.WUBRG) {
+                        final String colString = MagicColor.toLongString(col);
+                        if (!kws.contains("Protection from " + colString)) {
+                            allColorsProtect.add("Protection:Card." + StringUtils.capitalize(colString) + ":" + colString + ":Aura");
+                        }
+                    }
+                    addedKW.addAll(allColorsProtect);
+                    removedKW.add(allColors);
+                }
             }
 
             removedKW.addAll(kws);
-            tgtC.addChangedCardKeywords(addedKW, removedKW, false, timestamp, 0);
+            gameCard.addChangedCardKeywords(addedKW, removedKW, false, timestamp, null);
 
             if (!"Permanent".equals(sa.getParam("Duration"))) {
                 final GameCommand until = new GameCommand() {
@@ -161,7 +158,7 @@ public class DebuffEffect extends SpellAbilityEffect {
 
                     @Override
                     public void run() {
-                        tgtC.removeChangedCardKeywords(timestamp, 0);
+                        gameCard.removeChangedCardKeywords(timestamp, 0);
                     }
                 };
                 addUntilCommand(sa, until);

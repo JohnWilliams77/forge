@@ -1,14 +1,15 @@
 package forge.game.cost;
 
-import java.util.List;
-
 import forge.game.GameEntityCounterTable;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
 import forge.game.mana.Mana;
+import forge.game.mana.ManaConversionMatrix;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.util.TextUtil;
+
+import java.util.List;
 
 public class PaymentDecision {
     public int c = 0;
@@ -22,6 +23,7 @@ public class PaymentDecision {
 
     // used for CostRemoveAnyCounter
     public final GameEntityCounterTable counterTable;
+    public ManaConversionMatrix matrix = null;
 
     public PaymentDecision(int cnt) {
         this(null, null, null, null, null);

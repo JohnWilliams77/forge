@@ -19,17 +19,15 @@ package forge.screens.match;
 
 import java.awt.*;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.EnumMap;
-import java.util.HashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
+import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JMenu;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -38,7 +36,6 @@ import javax.swing.KeyStroke;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 
-import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -68,6 +65,7 @@ import forge.game.phase.PhaseType;
 import forge.game.player.DelayedReveal;
 import forge.game.player.IHasIcon;
 import forge.game.player.Player;
+import forge.game.player.PlayerController.FullControlFlag;
 import forge.game.player.PlayerView;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityStackInstance;
@@ -105,6 +103,7 @@ import forge.player.PlayerZoneUpdate;
 import forge.player.PlayerZoneUpdates;
 import forge.screens.match.controllers.CAntes;
 import forge.screens.match.controllers.CCombat;
+import forge.screens.match.controllers.CDependencies;
 import forge.screens.match.controllers.CDetailPicture;
 import forge.screens.match.controllers.CDev;
 import forge.screens.match.controllers.CDock;
@@ -148,6 +147,10 @@ public final class CMatchUI
     extends AbstractGuiGame
     implements ICDoc, IMenuProvider {
 
+    public static final EnumSet<ZoneType> FLOATING_ZONE_TYPES = EnumSet.of(ZoneType.Library, ZoneType.Graveyard, ZoneType.Exile,
+            ZoneType.Flashback, ZoneType.Command, ZoneType.Ante, ZoneType.Sideboard, ZoneType.PlanarDeck,
+            ZoneType.SchemeDeck, ZoneType.AttractionDeck, ZoneType.ContraptionDeck, ZoneType.Junkyard);
+
     private final FScreen screen;
     private final VMatchUI view;
     private final CMatchUIMenus menus = new CMatchUIMenus(this);
@@ -164,6 +167,7 @@ public final class CMatchUI
 
     private final CAntes cAntes = new CAntes(this);
     private final CCombat cCombat = new CCombat();
+    private final CDependencies cDependencies = new CDependencies(this);
     private final CDetailPicture cDetailPicture = new CDetailPicture(this);
     private final CDev cDev = new CDev(this);
     private final CDock cDock = new CDock(this);
@@ -187,6 +191,7 @@ public final class CMatchUI
         this.myDocs.put(EDocID.REPORT_MESSAGE, getCPrompt().getView());
         this.myDocs.put(EDocID.REPORT_STACK, getCStack().getView());
         this.myDocs.put(EDocID.REPORT_COMBAT, cCombat.getView());
+        this.myDocs.put(EDocID.REPORT_DEPENDENCIES, cDependencies.getView());
         this.myDocs.put(EDocID.REPORT_LOG, cLog.getView());
         this.myDocs.put(EDocID.DEV_MODE, getCDev().getView());
         this.myDocs.put(EDocID.BUTTON_DOCK, getCDock().getView());
@@ -226,17 +231,15 @@ public final class CMatchUI
         cDetailPicture.setGameView(gameView0);
         screen.setTabCaption(gameView0.getTitle());
         if (sortedPlayers != null) {
-            FThreads.invokeInEdtNowOrLater(new Runnable() {
-                @Override public final void run() {
-                    for (final VField f : getFieldViews()) {
-                        f.updateDetails();
-                        f.updateZones();
-                        f.updateManaPool();
-                        f.getTabletop().update();
-                    }
-                    for (final VHand h : getHandViews()) {
-                        h.getLayoutControl().updateHand();
-                    }
+            FThreads.invokeInEdtNowOrLater(() -> {
+                for (final VField f : getFieldViews()) {
+                    f.updateDetails();
+                    f.updateZones();
+                    f.updateManaPool();
+                    f.getTabletop().update();
+                }
+                for (final VHand h : getHandViews()) {
+                    h.getLayoutControl().updateHand();
                 }
             });
         }
@@ -374,11 +377,7 @@ public final class CMatchUI
     }
 
     public void setCard(final CardView c, final boolean isInAltState) {
-        FThreads.invokeInEdtNowOrLater(new Runnable() {
-            @Override public void run() {
-                cDetailPicture.showCard(c, isInAltState);
-            }
-        });
+        FThreads.invokeInEdtNowOrLater(() -> cDetailPicture.showCard(c, isInAltState));
     }
 
     public void setCard(final InventoryItem item) {
@@ -412,6 +411,11 @@ public final class CMatchUI
         cCombat.setModel(combat);
         cCombat.update();
     } // showCombat(CombatView)
+
+    @Override
+    public void updateDependencies() {
+        cDependencies.update();
+    }
 
     @Override
     public void updateDayTime(String daytime) {
@@ -452,7 +456,12 @@ public final class CMatchUI
                 }
             }
 
+            if (updateAnte) {
+                cAntes.update();
+            }
             final VField vField = getFieldViewFor(owner);
+            if(vField == null)
+                return;
             if (setupPlayZone) {
                 vField.getTabletop().update();
             }
@@ -463,9 +472,6 @@ public final class CMatchUI
                 }
                 // update Cards in Hand
                 vField.updateDetails();
-            }
-            if (updateAnte) {
-                cAntes.update();
             }
             if (updateZones) {
                 vField.updateZones();
@@ -490,18 +496,12 @@ public final class CMatchUI
                                 }
                             }
                             break;
-                        case Library:
-                        case Graveyard:
-                        case Exile:
-                        case Flashback:
-                        case Command:
-                        case Ante:
-                        case Sideboard:
+                        default:
+                            if(!FLOATING_ZONE_TYPES.contains(zone))
+                                break;
                             if (FloatingZone.show(this,player,zone)) {
                                 updatedPlayerZones.add(update);
                             }
-                            break;
-                        default:
                             break;
                     }
                 }
@@ -515,22 +515,8 @@ public final class CMatchUI
             for (final PlayerZoneUpdate update : zonesToUpdate) {
                 final PlayerView player = update.getPlayer();
                 for (final ZoneType zone : update.getZones()) {
-                    switch (zone) {
-                        case Battlefield: // always shown
-                            break;
-                        case Hand: // the controller's hand should never be temporarily shown, but ...
-                        case Library:
-                        case Graveyard:
-                        case Exile:
-                        case Flashback:
-                        case Command:
-                        case Ante:
-                        case Sideboard:
-                            FloatingZone.hide(this,player,zone);
-                            break;
-                        default:
-                            break;
-                    }
+                    if(FLOATING_ZONE_TYPES.contains(zone))
+                        FloatingZone.hide(this,player,zone);
                 }
             }
         }
@@ -581,7 +567,7 @@ public final class CMatchUI
                 }
                 break;
             default:
-		        FloatingZone.refresh(c.getController(),zone); // in case the card is visible in the zone
+                FloatingZone.refresh(c.getController(),zone); // in case the card is visible in the zone
                 break;
             }
         }
@@ -591,18 +577,16 @@ public final class CMatchUI
     public void setSelectables(final Iterable<CardView> cards) {
         super.setSelectables(cards);
         // update zones on tabletop and floating zones - non-selectable cards may be rendered differently
-        FThreads.invokeInEdtNowOrLater(new Runnable() {
-            @Override public final void run() {
-                for (final PlayerView p : getGameView().getPlayers()) {
-                    if (p.getCards(ZoneType.Battlefield) != null) {
-                        updateCards(p.getCards(ZoneType.Battlefield));
-                    }
-                    if (p.getCards(ZoneType.Hand) != null) {
-                        updateCards(p.getCards(ZoneType.Hand));
-                    }
+        FThreads.invokeInEdtNowOrLater(() -> {
+            for (final PlayerView p : getGameView().getPlayers()) {
+                if (p.getCards(ZoneType.Battlefield) != null) {
+                    updateCards(p.getCards(ZoneType.Battlefield));
                 }
-                FloatingZone.refreshAll();
+                if (p.getCards(ZoneType.Hand) != null) {
+                    updateCards(p.getCards(ZoneType.Hand));
+                }
             }
+            FloatingZone.refreshAll();
         });
     }
 
@@ -610,33 +594,29 @@ public final class CMatchUI
     public void clearSelectables() {
         super.clearSelectables();
         // update zones on tabletop and floating zones - non-selectable cards may be rendered differently
-        FThreads.invokeInEdtNowOrLater(new Runnable() {
-            @Override public final void run() {
-                for (final PlayerView p : getGameView().getPlayers()) {
-                    if (p.getCards(ZoneType.Battlefield) != null) {
-                        updateCards(p.getCards(ZoneType.Battlefield));
-                    }
-                    if (p.getCards(ZoneType.Hand) != null) {
-                        updateCards(p.getCards(ZoneType.Hand));
-                    }
+        FThreads.invokeInEdtNowOrLater(() -> {
+            for (final PlayerView p : getGameView().getPlayers()) {
+                if (p.getCards(ZoneType.Battlefield) != null) {
+                    updateCards(p.getCards(ZoneType.Battlefield));
                 }
-                FloatingZone.refreshAll();
+                if (p.getCards(ZoneType.Hand) != null) {
+                    updateCards(p.getCards(ZoneType.Hand));
+                }
             }
+            FloatingZone.refreshAll();
         });
     }
 
     @Override
     public void refreshField() {
         super.refreshField();
-        FThreads.invokeInEdtNowOrLater(new Runnable() {
-            @Override public final void run() {
-                for (final PlayerView p : getGameView().getPlayers()) {
-                    if (p.getCards(ZoneType.Battlefield) != null) {
-                        updateCards(p.getCards(ZoneType.Battlefield));
-                    }
+        FThreads.invokeInEdtNowOrLater(() -> {
+            for (final PlayerView p : getGameView().getPlayers()) {
+                if (p.getCards(ZoneType.Battlefield) != null) {
+                    updateCards(p.getCards(ZoneType.Battlefield));
                 }
-                FloatingZone.refreshAll();
             }
+            FloatingZone.refreshAll();
         });
     }
 
@@ -714,8 +694,8 @@ public final class CMatchUI
      */
     private CardPanel findCardPanel(final CardView card) {
         final int id = card.getId();
-        switch (card.getZone()) {
-        case Battlefield:
+        ZoneType zone = card.getZone();
+        if (zone == ZoneType.Battlefield) {
             for (final VField f : view.getFieldViews()) {
                 final CardPanel panel = f.getTabletop().getCardPanel(id);
                 if (panel != null) {
@@ -723,8 +703,8 @@ public final class CMatchUI
                     return panel;
                 }
             }
-            break;
-        case Hand:
+        }
+        else if (zone == ZoneType.Hand) {
             for (final VHand h : view.getHands()) {
                 final CardPanel panel = h.getHandArea().getCardPanel(id);
                 if (panel != null) {
@@ -732,15 +712,9 @@ public final class CMatchUI
                     return panel;
                 }
             }
-            break;
-        case Command:
-        case Exile:
-        case Graveyard:
-        case Library:
-            return FloatingZone.getCardPanel(this, card);
-        default:
-            break;
         }
+        else if (FLOATING_ZONE_TYPES.contains(zone))
+            return FloatingZone.getCardPanel(this, card);
         return null;
     }
 
@@ -759,22 +733,19 @@ public final class CMatchUI
         //else if (toFocus == btn1)
         //btn2.setFocusable(false);
 
-        final Runnable focusRoutine = new Runnable() {
-            @Override
-            public final void run() {
-                // The only button that is focusable is the enabled default button
-                // This prevents the user from somehow focusing on on some other button
-                // and then using the keyboard to try to select it
-                btn1.setEnabled(enable1);
-                btn2.setEnabled(enable2);
-                btn1.setFocusable(enable1 && focus1);
-                btn2.setFocusable(enable2 && !focus1);
-                // ensure we don't steal focus from an overlay
-                if (toFocus != null && !FNetOverlay.SINGLETON_INSTANCE.getTxtInput().hasFocus() ) {
-                    toFocus.requestFocus(); // focus here even if another window has focus - shouldn't have to do it this way but some popups grab window focus
-                }
+        final Runnable focusRoutine = () -> {
+            // The only button that is focusable is the enabled default button
+            // This prevents the user from somehow focusing on on some other button
+            // and then using the keyboard to try to select it
+            btn1.setEnabled(enable1);
+            btn2.setEnabled(enable2);
+            btn1.setFocusable(enable1 && focus1);
+            btn2.setFocusable(enable2 && !focus1);
+            // ensure we don't steal focus from an overlay
+            if (toFocus != null && !FNetOverlay.SINGLETON_INSTANCE.getTxtInput().hasFocus() ) {
+                toFocus.requestFocus(); // focus here even if another window has focus - shouldn't have to do it this way but some popups grab window focus
             }
-            };
+        };
 
         if (FThreads.isGuiThread()) { // run this now whether in EDT or not so that it doesn't clobber later stuff
             FThreads.invokeInEdtNowOrLater(focusRoutine);
@@ -860,11 +831,7 @@ public final class CMatchUI
 
     @Override
     public void updateStack() {
-        FThreads.invokeInEdtNowOrLater(new Runnable() {
-            @Override public final void run() {
-                getCStack().update();
-            }
-        });
+        FThreads.invokeInEdtNowOrLater(() -> getCStack().update());
     }
 
     /**
@@ -938,12 +905,7 @@ public final class CMatchUI
             }
             GuiUtils.addMenuItem(menu, FSkin.encodeSymbols(s, true),
                     shortcut > 0 ? KeyStroke.getKeyStroke(shortcut, 0) : null,
-                    new Runnable() {
-                        @Override
-                        public void run() {
-                            getGameController().selectAbility(ab);
-                        }
-                    }, enabled);
+                    () -> getGameController().selectAbility(ab), enabled);
             if (shortcut > 0) {
                 shortcut++;
                 if (shortcut > KeyEvent.VK_9) {
@@ -1039,12 +1001,10 @@ public final class CMatchUI
         }
 
         final AtomicReference<Map<CardView, Integer>> result = new AtomicReference<>();
-        FThreads.invokeInEdtAndWait(new Runnable() {
-            @Override
-            public void run() {
-                final VAssignCombatDamage v = new VAssignCombatDamage(CMatchUI.this, attacker, blockers, damage, defender, overrideOrder, maySkip);
-                result.set(v.getDamageMap());
-            }});
+        FThreads.invokeInEdtAndWait(() -> {
+            final VAssignCombatDamage v = new VAssignCombatDamage(CMatchUI.this, attacker, blockers, damage, defender, overrideOrder, maySkip);
+            result.set(v.getDamageMap());
+        });
         return result.get();
     }
 
@@ -1056,12 +1016,10 @@ public final class CMatchUI
         }
 
         final AtomicReference<Map<Object, Integer>> result = new AtomicReference<>();
-        FThreads.invokeInEdtAndWait(new Runnable() {
-            @Override
-            public void run() {
-                final VAssignGenericAmount v = new VAssignGenericAmount(CMatchUI.this, effectSource, target, amount, atLeastOne, amountLabel);
-                result.set(v.getAssignedMap());
-            }});
+        FThreads.invokeInEdtAndWait(() -> {
+            final VAssignGenericAmount v = new VAssignGenericAmount(CMatchUI.this, effectSource, target, amount, atLeastOne, amountLabel);
+            result.set(v.getAssignedMap());
+        });
         return result.get();
     }
 
@@ -1096,11 +1054,9 @@ public final class CMatchUI
     public void afterGameEnd() {
         super.afterGameEnd();
         Singletons.getView().getLpnDocument().remove(targetingOverlay.getPanel());
-        FThreads.invokeInEdtNowOrLater(new Runnable() {
-            @Override public void run() {
-                Singletons.getView().getNavigationBar().closeTab(screen);
-                LinkHandler.clearWeakReferencesNow();
-            }
+        FThreads.invokeInEdtNowOrLater(() -> {
+            Singletons.getView().getNavigationBar().closeTab(screen);
+            LinkHandler.clearWeakReferencesNow();
         });
     }
 
@@ -1115,7 +1071,7 @@ public final class CMatchUI
     }
 
     @Override
-    public <T> List<T> getChoices(final String message, final int min, final int max, final List<T> choices, final T selected, final Function<T, String> display) {
+    public <T> List<T> getChoices(final String message, final int min, final int max, final List<T> choices, final List<T> selected, final Function<T, String> display) {
         /*if ((choices != null && !choices.isEmpty() && choices.iterator().next() instanceof GameObject) || selected instanceof GameObject) {
             System.err.println("Warning: GameObject passed to GUI! Printing stack trace.");
             Thread.dumpStack();
@@ -1256,6 +1212,7 @@ public final class CMatchUI
         final List<VField> fieldViews = getFieldViews();
 
         // Human field is at index [0]
+        //TODO: Rework without that assumption; not true in 4 AI game or hotseat game.
         final PhaseIndicator fvHuman = fieldViews.get(0).getPhaseIndicator();
         fvHuman.getLblUpkeep().setEnabled(prefs.getPrefBoolean(FPref.PHASE_HUMAN_UPKEEP));
         fvHuman.getLblDraw().setEnabled(prefs.getPrefBoolean(FPref.PHASE_HUMAN_DRAW));
@@ -1389,12 +1346,7 @@ public final class CMatchUI
             nextNotifiableStackIndex++;
         } else {
             // Not yet time to show the modal - schedule the method again, and try again later
-            Runnable tryAgainThread = new Runnable() {
-                @Override
-                public void run() {
-                    notifyStackAddition(event);
-                }
-            };
+            Runnable tryAgainThread = () -> notifyStackAddition(event);
             GuiBase.getInterface().invokeInEdtLater(tryAgainThread);
 
         }
@@ -1509,12 +1461,7 @@ public final class CMatchUI
 
     @Override
     public void handleLandPlayed(Card land) {
-        Runnable createPopupThread = new Runnable() {
-            @Override
-            public void run() {
-                createLandPopupPanel(land);
-            }
-        };
+        Runnable createPopupThread = () -> createLandPopupPanel(land);
         GuiBase.getInterface().invokeInEdtAndWait(createPopupThread);
     }
 
@@ -1558,5 +1505,41 @@ public final class CMatchUI
 
             FOptionPane.showOptionDialog(null, title, null, mainPanel, options);
         }
+    }
+
+    public void showFullControl(PlayerView pv, MouseEvent e) {
+        if (pv.isAI()) {
+            return;
+        }
+        Set<FullControlFlag> controlFlags = getGameView().getGame().getPlayer(pv).getController().getFullControl();
+        final String lblFullControl = Localizer.getInstance().getMessage("lblFullControl");
+        final JPopupMenu menu = new JPopupMenu(lblFullControl);
+        GuiUtils.addMenuItem(menu, lblFullControl, null, () -> {
+            FOptionPane.showMessageDialog(Localizer.getInstance().getMessage("lblFullControlDetails"), lblFullControl);
+        });
+
+        addFullControlEntry(menu, "lblChooseCostOrder", FullControlFlag.ChooseCostOrder, controlFlags);
+        addFullControlEntry(menu, "lblChooseCostReductionOrder", FullControlFlag.ChooseCostReductionOrderAndVariableAmount, controlFlags);
+        addFullControlEntry(menu, "lblNoPaymentFromManaAbility", FullControlFlag.NoPaymentFromManaAbility, controlFlags);
+        addFullControlEntry(menu, "lblNoFreeCombatCostHandling", FullControlFlag.NoFreeCombatCostHandling, controlFlags);
+        addFullControlEntry(menu, "lblAllowPaymentStartWithMissingResources", FullControlFlag.AllowPaymentStartWithMissingResources, controlFlags);
+        addFullControlEntry(menu, "lblLayerTimestampOrder", FullControlFlag.LayerTimestampOrder, controlFlags);
+
+        menu.show(view.getControl().getFieldViewFor(pv).getAvatarArea(), e.getX(), e.getY());
+    }
+
+    private void addFullControlEntry(JPopupMenu menu, String label, FullControlFlag flag, Set<FullControlFlag> controlFlags) {
+        JCheckBoxMenuItem item = new JCheckBoxMenuItem(Localizer.getInstance().getMessage(label));
+        if (controlFlags.contains(flag)) {
+            item.setSelected(true);
+        }
+        item.addActionListener(arg0 -> {
+            if (controlFlags.contains(flag)) {
+                controlFlags.remove(flag);
+            } else {
+                controlFlags.add(flag);
+            }
+        });
+        menu.add(item);
     }
 }

@@ -17,11 +17,11 @@
  */
 package forge.deck;
 
+import forge.item.InventoryItem;
+
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-
-import forge.item.InventoryItem;
 
 public abstract class DeckBase implements Serializable, Comparable<DeckBase>, InventoryItem {
     private static final long serialVersionUID = -7538150536939660052L;
@@ -75,7 +75,7 @@ public abstract class DeckBase implements Serializable, Comparable<DeckBase>, In
     public void setName(String deckName) { this.name = deckName; }
 
     public boolean hasName() {
-        return !(this.name.equals(""));
+        return !(this.name.isEmpty());
     }
 
     public String getDirectory() {

@@ -5,9 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.function.Predicate;
 
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -37,9 +36,7 @@ import forge.localinstance.properties.ForgeConstants;
 import forge.localinstance.skin.FSkinProp;
 import forge.localinstance.skin.IHasSkinProp;
 import forge.model.FModel;
-import forge.util.FileUtil;
-import forge.util.Localizer;
-import forge.util.MyRandom;
+import forge.util.*;
 
 public class ConquestUtil {
     private ConquestUtil() {}
@@ -93,7 +90,7 @@ public class ConquestUtil {
             gen = new DeckGenerator5Color(pool, DeckFormat.PlanarConquest);
             break;
         default:
-            return null; //shouldn't happen
+            return null; // Shouldn't happen
         }
 
         gen.setSingleton(true);
@@ -135,31 +132,31 @@ public class ConquestUtil {
             availableCards.add(pc);
         }
 
-        //remove all exiled cards
+        // Remove all exiled cards
         for (PaperCard pc : model.getExiledCards()) {
             availableCards.remove(pc);
         }
 
-        //remove all cards in main deck
+        // Remove all cards in the main deck
         for (Entry<PaperCard, Integer> e : deck.getMain()) {
             availableCards.remove(e.getKey());
         }
 
-        //remove commander
+        // Remove commander
         byte colorIdentity = 0; 
         for (PaperCard commander : deck.getCommanders()) {
             colorIdentity |=  commander.getRules().getColorIdentity().getColor();
             availableCards.remove(commander);
         }
 
-        //remove any cards that aren't allowed in deck due to color identity
+        // Remove any cards that aren't allowed in deck due to color identity
         if (colorIdentity != MagicColor.ALL_COLORS) {
             Predicate<PaperCard> pred = DeckFormat.Commander.isLegalCardForCommanderPredicate(deck.getCommanders());
 
-            availableCards.retainAll(Lists.newArrayList(Iterables.filter(availableCards, pred)));
+            availableCards.removeIf(pred.negate());
         }
 
-        //create pool from available cards
+        // Create pool from available cards
         CardPool pool = new CardPool();
         pool.addAllFlat(availableCards);
         return pool;
@@ -176,7 +173,7 @@ public class ConquestUtil {
 
     public static void setPlaneTemporarilyAccessible(String planeName, boolean accessible) {
         ConquestPlane plane = getPlaneByName(planeName);
-        if (plane != null && accessible != !plane.isUnreachable()) {
+        if (plane != null && accessible == plane.isUnreachable()) {
             plane.setTemporarilyReachable(accessible);
         } else {
             System.err.println("Could not find plane to set the accessibility flag: " + planeName);
@@ -185,25 +182,23 @@ public class ConquestUtil {
 
     public static Iterable<PaperCard> getStartingPlaneswalkerOptions(final PaperCard startingCommander) {
         final byte colorIdentity = startingCommander.getRules().getColorIdentity().getColor();
-        final List<String> selected = Lists.newArrayList();
-        return Iterables.filter(FModel.getMagicDb().getCommonCards().getAllNonPromosNonReprintsNoAlt(), new Predicate<PaperCard>() {
-            @Override
-            public boolean apply(PaperCard card) {
-                if (selected.contains(card.getName())) {
-                    return false;
-                }
-                CardRules rules = card.getRules();
-                boolean allowed = rules.getType().isPlaneswalker() &&
-                        !card.getName().equals(startingCommander.getName()) && //don't allow picking a commander as a starting planeswalker
-                        rules.getColorIdentity().hasNoColorsExcept(colorIdentity);
-
-                if (allowed) {
-                    selected.add(card.getName());
-                    return true;
-                }
-
+        final Set<String> selected = Sets.newHashSet();
+        // TODO: Could make this more efficient by streaming unique cards and then mapping them to an acceptable print if they aren't already...
+        return IterableUtil.filter(FModel.getMagicDb().getCommonCards().getAllNonPromosNonReprintsNoAlt(), card -> {
+            if (selected.contains(card.getName())) {
                 return false;
             }
+            CardRules rules = card.getRules();
+            boolean allowed = rules.getType().isPlaneswalker() &&
+                    !card.getName().equals(startingCommander.getName()) && //don't allow picking a commander as a starting planeswalker
+                    rules.getColorIdentity().hasNoColorsExcept(colorIdentity);
+
+            if (allowed) {
+                selected.add(card.getName());
+                return true;
+            }
+
+            return false;
         });
     }
 
@@ -432,7 +427,7 @@ public class ConquestUtil {
         }
 
         @Override
-        public boolean apply(PaperCard card) {
+        public boolean test(PaperCard card) {
             return card.getRules().getColorIdentity().hasNoColorsExcept(color);
         }
     }
@@ -452,7 +447,7 @@ public class ConquestUtil {
         }
 
         @Override
-        public boolean apply(PaperCard card) {
+        public boolean test(PaperCard card) {
             CardType cardType = card.getRules().getType();
             if (nonTypes != null) {
                 for (CoreType nonType : nonTypes) {
@@ -514,7 +509,7 @@ public class ConquestUtil {
         }
 
         @Override
-        public boolean apply(PaperCard card) {
+        public boolean test(PaperCard card) {
             return rarityOdds.containsKey(card.getRarity());
         }
     }
@@ -528,7 +523,7 @@ public class ConquestUtil {
         }
 
         @Override
-        public boolean apply(PaperCard card) {
+        public boolean test(PaperCard card) {
             int cardCmc = card.getRules().getManaCost().getCMC();
             if (cardCmc < cmcMin) { return false; }
             return cmcMax == -1 || cardCmc <= cmcMax;

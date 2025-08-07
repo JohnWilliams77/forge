@@ -1,15 +1,15 @@
 package forge.card;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
-
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
-
 import forge.util.CardTranslation;
 import forge.util.ComparableOp;
+import forge.util.IterableUtil;
 import forge.util.PredicateString;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Map;
+import java.util.function.Predicate;
 
 /**
  * Filtering conditions specific for CardRules class, defined here along with
@@ -17,29 +17,9 @@ import forge.util.PredicateString;
  */
 public final class CardRulesPredicates {
 
-    /** The Constant isKeptInAiDecks. */
-    public static final Predicate<CardRules> IS_KEPT_IN_AI_DECKS = new Predicate<CardRules>() {
-        @Override
-        public boolean apply(final CardRules card) {
-            return !card.getAiHints().getRemAIDecks();
-        }
-    };
-
-    /** The Constant isKeptInAiLimitedDecks. */
-    public static final Predicate<CardRules> IS_KEPT_IN_AI_LIMITED_DECKS = new Predicate<CardRules>() {
-        @Override
-        public boolean apply(final CardRules card) {
-            return !card.getAiHints().getRemAIDecks() && !card.getAiHints().getRemNonCommanderDecks();
-        }
-    };
-
-    /** The Constant isKeptInRandomDecks. */
-    public static final Predicate<CardRules> IS_KEPT_IN_RANDOM_DECKS = new Predicate<CardRules>() {
-        @Override
-        public boolean apply(final CardRules card) {
-            return !card.getAiHints().getRemRandomDecks();
-        }
-    };
+    public static final Predicate<CardRules> IS_KEPT_IN_AI_DECKS = card -> !card.getAiHints().getRemAIDecks();
+    public static final Predicate<CardRules> IS_KEPT_IN_AI_LIMITED_DECKS = card -> !card.getAiHints().getRemAIDecks() && !card.getAiHints().getRemNonCommanderDecks();
+    public static final Predicate<CardRules> IS_KEPT_IN_RANDOM_DECKS = card -> !card.getAiHints().getRemRandomDecks();
 
     // Static builder methods - they choose concrete implementation by themselves
     /**
@@ -83,7 +63,14 @@ public final class CardRulesPredicates {
         return new LeafNumber(LeafNumber.CardField.TOUGHNESS, op, what);
     }
 
-    // P/T
+    public static Predicate<CardRules> pt(final ComparableOp op, final int what) {
+        return new LeafNumber(LeafNumber.CardField.PT, op, what);
+    }
+
+    public static Predicate<CardRules> loyalty(final ComparableOp op, final int what) {
+        return new LeafNumber(LeafNumber.CardField.LOYALTY, op, what);
+    }
+
     /**
      * Rules.
      *
@@ -110,14 +97,6 @@ public final class CardRulesPredicates {
         return new LeafString(LeafString.CardField.NAME, op, what);
     }
 
-    /**
-     * TODO: Write javadoc for this method.
-     * @param transform
-     * @return
-     */
-    public static Predicate<CardRules> splitType(final CardSplitType transform) {
-        return new PredicateSplitType(transform);
-    }
 
     /**
      * Sub type.
@@ -130,15 +109,6 @@ public final class CardRulesPredicates {
         return new LeafString(LeafString.CardField.SUBTYPE, PredicateString.StringOp.CONTAINS, what);
     }
 
-    /**
-     * Sub type.
-     *
-     * @param op
-     *            the op
-     * @param what
-     *            the what
-     * @return the predicate
-     */
     public static Predicate<CardRules> subType(final PredicateString.StringOp op, final String what) {
         return new LeafString(LeafString.CardField.SUBTYPE, op, what);
     }
@@ -157,19 +127,9 @@ public final class CardRulesPredicates {
     }
 
     public static Predicate<CardRules> hasCreatureType(final String... creatureTypes) {
-        return new Predicate<CardRules>() {
-            @Override
-            public boolean apply(final CardRules card) {
-                if (!card.getType().isCreature()) { return false; }
-
-                final Set<String> set = card.getType().getCreatureTypes();
-                for (final String creatureType : creatureTypes) {
-                    if (set.contains(creatureType)) {
-                        return true;
-                    }
-                }
-                return false;
-            }
+        return card -> {
+            if (!card.getType().isCreature()) { return false; }
+            return !Collections.disjoint(card.getType().getCreatureTypes(), Arrays.asList(creatureTypes));
         };
     }
 
@@ -181,12 +141,7 @@ public final class CardRulesPredicates {
      * @return the predicate
      */
     public static Predicate<CardRules> hasKeyword(final String keyword) {
-        return new Predicate<CardRules>() {
-            @Override
-            public boolean apply(final CardRules card) {
-                return card.hasStartOfKeyword(keyword);
-            }
-        };
+        return card -> IterableUtil.any(card.getAllFaces(), cf -> cf != null && card.hasStartOfKeyword(keyword, cf));
     }
 
     /**
@@ -199,83 +154,39 @@ public final class CardRulesPredicates {
      * @return the predicate
      */
     public static Predicate<CardRules> deckHas(final DeckHints.Type type, final String has) {
-        return new Predicate<CardRules>() {
-            @Override
-            public boolean apply(final CardRules card) {
-                DeckHints deckHas = card.getAiHints().getDeckHas();
-                return deckHas != null && deckHas.isValid() && deckHas.contains(type, has);
-            }
+        return card -> {
+            DeckHints deckHas = card.getAiHints().getDeckHas();
+            return deckHas != null && deckHas.isValid() && deckHas.contains(type, has);
         };
     }
 
     public static Predicate<CardRules> deckHasExactly(final DeckHints.Type type, final String has[]) {
-        return new Predicate<CardRules>() {
-            @Override
-            public boolean apply(final CardRules card) {
-                DeckHints deckHas = card.getAiHints().getDeckHas();
-                return deckHas != null && deckHas.isValid() && deckHas.is(type, has);
-            }
+        return card -> {
+            DeckHints deckHas = card.getAiHints().getDeckHas();
+            return deckHas != null && deckHas.isValid() && deckHas.is(type, has);
         };
     }
 
-    /**
-     * Core type.
-     *
-     * @param isEqual
-     *            the is equal
-     * @param what
-     *            the what
-     * @return the predicate
-     */
-    public static Predicate<CardRules> coreType(final boolean isEqual, final String what) {
+    public static Predicate<CardRules> coreType(final String what) {
         try {
-            return CardRulesPredicates.coreType(isEqual, Enum.valueOf(CardType.CoreType.class, what));
+            return CardRulesPredicates.coreType(Enum.valueOf(CardType.CoreType.class, what));
         } catch (final Exception e) {
-            return com.google.common.base.Predicates.alwaysFalse();
+            return x -> false;
         }
     }
 
     /**
-     * Core type.
-     *
-     * @param isEqual
-     *            the is equal
-     * @param type
-     *            the type
-     * @return the predicate
+     * @return a Predicate that matches cards that have the specified core type.
      */
-    public static Predicate<CardRules> coreType(final boolean isEqual, final CardType.CoreType type) {
-        return new PredicateCoreType(type, isEqual);
+    public static Predicate<CardRules> coreType(final CardType.CoreType type) {
+        return card -> card.getType().hasType(type);
     }
 
     /**
-     * Super type.
-     *
-     * @param isEqual
-     *            the is equal
-     * @param what
-     *            the what
-     * @return the predicate
+     * @return a Predicate that matches cards that have the specified supertype.
      */
-    public static Predicate<CardRules> superType(final boolean isEqual, final String what) {
-        try {
-            return CardRulesPredicates.superType(isEqual, Enum.valueOf(CardType.Supertype.class, what));
-        } catch (final Exception e) {
-            return com.google.common.base.Predicates.alwaysFalse();
-        }
-    }
-
-    /**
-     * Super type.
-     *
-     * @param isEqual
-     *            the is equal
-     * @param type
-     *            the type
-     * @return the predicate
-     */
-    public static Predicate<CardRules> superType(final boolean isEqual, final CardType.Supertype type) {
-        return new PredicateSuperType(type, isEqual);
+    public static Predicate<CardRules> superType(final CardType.Supertype type) {
+        return card -> card.getType().hasSupertype(type);
     }
 
     /**
@@ -344,13 +255,24 @@ public final class CardRulesPredicates {
         return new LeafColor(LeafColor.ColorOperator.CountColorsGreaterOrEqual, cntColors);
     }
 
+    public static Predicate<CardRules> hasMoreCntColors(final byte cntColors) {
+        return new LeafColor(LeafColor.ColorOperator.CountColorsGreater, cntColors);
+    }
+
+    public static Predicate<CardRules> hasAtMostCntColors(final byte cntColors) {
+        return new LeafColor(LeafColor.ColorOperator.CountColorsSmallerOrEqual, cntColors);
+    }
+
+    public static Predicate<CardRules> hasLessCntColors(final byte cntColors) {
+        return new LeafColor(LeafColor.ColorOperator.CountColorsSmaller, cntColors);
+    }
+
     public static Predicate<CardRules> hasColorIdentity(final int colormask) {
-        return new Predicate<CardRules>() {
-            @Override
-            public boolean apply(final CardRules rules) {
-                return rules.getColorIdentity().hasNoColorsExcept(colormask);
-            }
-        };
+        return rules -> rules.getColorIdentity().hasNoColorsExcept(colormask);
+    }
+
+    public static Predicate<CardRules> canBePartnerCommanderWith(final CardRules commander) {
+        return rules -> rules.canBePartnerCommanders(commander);
     }
 
     private static class LeafString extends PredicateString<CardRules> {
@@ -361,23 +283,80 @@ public final class CardRulesPredicates {
         private final String operand;
         private final LeafString.CardField field;
 
+        protected boolean checkName(String name) {
+            return op(name, this.operand)
+            || op(CardTranslation.getTranslatedName(name), this.operand)
+            || op(StringUtils.stripAccents(name), this.operand);
+        }
+        protected boolean checkOracle(ICardFace face) {
+            if (face == null) {
+                return false;
+            }
+            if (face.hasFunctionalVariants()) {
+                for (Map.Entry<String, ? extends ICardFace> v : face.getFunctionalVariants().entrySet()) {
+                    //Not a very pretty implementation, but an ICardFace doesn't have a specific variant, so they all need to be checked.
+                    String origOracle = v.getValue().getOracleText();
+                    if(op(origOracle, operand))
+                        return true;
+                    String name = v.getValue().getName() + " $" + v.getKey();
+                    if(op(CardTranslation.getTranslatedOracle(name), operand))
+                        return true;
+                }
+            }
+            if (op(face.getOracleText(), operand) || op(CardTranslation.getTranslatedOracle(face.getName()), operand)) {
+                return true;
+            }
+            return false;
+        }
+        protected boolean checkType(ICardFace face) {
+            if (face == null) {
+                return false;
+            }
+            if (face.hasFunctionalVariants()) {
+                for (Map.Entry<String, ? extends ICardFace> v : face.getFunctionalVariants().entrySet()) {
+                    String origType = v.getValue().getType().toString();
+                    if(op(origType, operand))
+                        return true;
+                    String name = v.getValue().getName() + " $" + v.getKey();
+                    if(op(CardTranslation.getTranslatedType(name, origType), operand))
+                        return true;
+                }
+            }
+            return (op(CardTranslation.getTranslatedType(face.getName(), face.getType().toString()), operand) || op(face.getType().toString(), operand));
+        }
+
         @Override
-        public boolean apply(final CardRules card) {
+        public boolean test(final CardRules card) {
             boolean shouldContain;
             switch (this.field) {
             case NAME:
-                boolean otherName = false;
-                if (card.getOtherPart() != null) {
-                    otherName = (op(CardTranslation.getTranslatedName(card.getOtherPart().getName()), this.operand) || op(card.getOtherPart().getName(), this.operand));
+                for (ICardFace face : card.getAllFaces()) {
+                    if (face != null && checkName(face.getName())) {
+                        return true;
+                    }
                 }
-                return otherName || (op(CardTranslation.getTranslatedName(card.getName()), this.operand) || op(card.getName(), this.operand));
+                return false;
             case SUBTYPE:
                 shouldContain = (this.getOperator() == StringOp.CONTAINS) || (this.getOperator() == StringOp.EQUALS);
                 return shouldContain == card.getType().hasSubtype(this.operand);
             case ORACLE_TEXT:
-                return (op(CardTranslation.getTranslatedOracle(card.getName()), operand) || op(card.getOracleText(), this.operand));
+                for (ICardFace face : card.getAllFaces()) {
+                    if (checkOracle(face)) {
+                        return true;
+                    }
+                }
+                return false;
             case JOINED_TYPE:
-                return (op(CardTranslation.getTranslatedType(card.getName(), card.getType().toString()), operand) || op(card.getType().toString(), operand));
+                if ((op(CardTranslation.getTranslatedType(card.getName(), card.getType().toString()), operand) || op(card.getType().toString(), operand))) {
+                    return true;
+                }
+                for (ICardFace face : card.getAllFaces()) {
+                    if (checkType(face)) {
+                        return true;
+                    }
+                }
+
+                return false;
             case COST:
                 final String cost = card.getManaCost().toString();
                 return op(cost, operand);
@@ -395,7 +374,15 @@ public final class CardRulesPredicates {
 
     private static class LeafColor implements Predicate<CardRules> {
         public enum ColorOperator {
-            CountColors, CountColorsGreaterOrEqual, HasAnyOf, HasAllOf, Equals, CanCast
+            CountColors,
+            CountColorsGreaterOrEqual,
+            CountColorsGreater,
+            CountColorsSmallerOrEqual,
+            CountColorsSmaller,
+            HasAnyOf,
+            HasAllOf,
+            Equals,
+            CanCast
         }
 
         private final LeafColor.ColorOperator op;
@@ -407,21 +394,28 @@ public final class CardRulesPredicates {
         }
 
         @Override
-        public boolean apply(final CardRules subject) {
+        public boolean test(final CardRules subject) {
             if (null == subject) {
                 return false;
             }
+            ColorSet cardColor = subject.getColor();
             switch (this.op) {
             case CountColors:
-                return subject.getColor().countColors() == this.color;
+                return cardColor.countColors() == this.color;
             case CountColorsGreaterOrEqual:
-                return subject.getColor().countColors() >= this.color;
+                return cardColor.countColors() >= this.color;
+            case CountColorsGreater:
+                return cardColor.countColors() > this.color;
+            case CountColorsSmallerOrEqual:
+                return cardColor.countColors() <= this.color;
+            case CountColorsSmaller:
+                return cardColor.countColors() < this.color;
             case Equals:
-                return subject.getColor().isEqual(this.color);
+                return cardColor.isEqual(this.color);
             case HasAllOf:
-                return subject.getColor().hasAllColors(this.color);
+                return cardColor.hasAllColors(this.color);
             case HasAnyOf:
-                return subject.getColor().hasAnyColor(this.color);
+                return cardColor.hasAnyColor(this.color);
             case CanCast:
                 return subject.canCastWithAvailable(this.color);
             default:
@@ -432,7 +426,7 @@ public final class CardRulesPredicates {
 
     public static class LeafNumber implements Predicate<CardRules> {
         public enum CardField {
-            CMC, GENERIC_COST, POWER, TOUGHNESS
+            CMC, GENERIC_COST, POWER, TOUGHNESS, PT, LOYALTY
         }
 
         private final LeafNumber.CardField field;
@@ -446,18 +440,33 @@ public final class CardRulesPredicates {
         }
 
         @Override
-        public boolean apply(final CardRules card) {
+        public boolean test(final CardRules card) {
             int value;
             switch (this.field) {
             case CMC:
                 return this.op(card.getManaCost().getCMC(), this.operand);
             case GENERIC_COST:
                 return this.op(card.getManaCost().getGenericCost(), this.operand);
+            case LOYALTY:
+                String sLoyalty = card.getInitialLoyalty();
+                if (StringUtils.isBlank(sLoyalty) || !sLoyalty.matches("\\d+")) {
+                    return false;
+                }
+                try {
+                    value = Integer.parseInt(sLoyalty) ;
+                }
+                catch (NumberFormatException ignored) {
+                    return false;
+                }
+                return this.op(value, this.operand);
             case POWER:
                 value = card.getIntPower();
                 return value != Integer.MAX_VALUE && this.op(value, this.operand);
             case TOUGHNESS:
                 value = card.getIntToughness();
+                return value != Integer.MAX_VALUE && this.op(value, this.operand);
+            case PT:
+                value = card.getIntPower() + card.getIntToughness();
                 return value != Integer.MAX_VALUE && this.op(value, this.operand);
             default:
                 return false;
@@ -484,181 +493,49 @@ public final class CardRulesPredicates {
         }
     }
 
-    private static class PredicateCoreType implements Predicate<CardRules> {
-        private final CardType.CoreType operand;
-        private final boolean shouldBeEqual;
+    public static final Predicate<CardRules> IS_CREATURE = CardRulesPredicates.coreType(CardType.CoreType.Creature);
+    public static final Predicate<CardRules> IS_LEGENDARY = CardRulesPredicates.superType(CardType.Supertype.Legendary);
+    public static final Predicate<CardRules> IS_ARTIFACT = CardRulesPredicates.coreType(CardType.CoreType.Artifact);
+    public static final Predicate<CardRules> IS_ATTRACTION = CardRulesPredicates.IS_ARTIFACT.and(CardRulesPredicates.subType("Attraction"));
+    public static final Predicate<CardRules> IS_CONTRAPTION = CardRulesPredicates.IS_ARTIFACT.and(CardRulesPredicates.subType("Contraption"));
+    public static final Predicate<CardRules> IS_EQUIPMENT = CardRulesPredicates.subType("Equipment");
+    public static final Predicate<CardRules> IS_LAND = CardRulesPredicates.coreType(CardType.CoreType.Land);
+    public static final Predicate<CardRules> IS_BASIC_LAND = subject -> subject.getType().isBasicLand();
+    public static final Predicate<CardRules> NOT_BASIC_LAND = subject -> !subject.getType().isBasicLand();
+    /** Matches only Plains, Island, Swamp, Mountain, or Forest. */
+    public static final Predicate<CardRules> IS_TRUE_BASIC_LAND = subject -> !subject.getName().equals("Wastes")&&subject.getType().isBasicLand();
+    /** Matches any card except Plains, Island, Swamp, Mountain, or Forest. */
+    public static final Predicate<CardRules> NOT_TRUE_BASIC_LAND = subject -> !subject.getType().isBasicLand() || subject.getName().equals("Wastes");
+    public static final Predicate<CardRules> IS_NONBASIC_LAND = subject -> subject.getType().isLand() && !subject.getType().isBasicLand();
+    public static final Predicate<CardRules> CAN_BE_COMMANDER = CardRules::canBeCommander;
+    public static final Predicate<CardRules> CAN_BE_PARTNER_COMMANDER = CardRules::canBePartnerCommander;
+    public static final Predicate<CardRules> CAN_BE_OATHBREAKER = CardRules::canBeOathbreaker;
+    public static final Predicate<CardRules> CAN_BE_SIGNATURE_SPELL = CardRules::canBeSignatureSpell;
+    public static final Predicate<CardRules> IS_PLANESWALKER = CardRulesPredicates.coreType(CardType.CoreType.Planeswalker);
+    public static final Predicate<CardRules> CAN_BE_TINY_LEADERS_COMMANDER = CardRulesPredicates.IS_LEGENDARY.and(CardRulesPredicates.IS_CREATURE.or(CardRulesPredicates.IS_PLANESWALKER));
+    public static final Predicate<CardRules> CAN_BE_BRAWL_COMMANDER = CardRulesPredicates.IS_LEGENDARY.and(CardRulesPredicates.IS_CREATURE.or(CardRulesPredicates.IS_PLANESWALKER));
+    public static final Predicate<CardRules> IS_BATTLE = CardRulesPredicates.coreType(CardType.CoreType.Battle);
+    public static final Predicate<CardRules> IS_INSTANT = CardRulesPredicates.coreType(CardType.CoreType.Instant);
+    public static final Predicate<CardRules> IS_SORCERY = CardRulesPredicates.coreType(CardType.CoreType.Sorcery);
+    public static final Predicate<CardRules> IS_ENCHANTMENT = CardRulesPredicates.coreType(CardType.CoreType.Enchantment);
+    public static final Predicate<CardRules> IS_NON_CREATURE_SPELL = Predicate.not(
+            CardRulesPredicates.IS_CREATURE.or(CardRulesPredicates.IS_LAND).or(CardRules::isVariant)
+    );
 
-        @Override
-        public boolean apply(final CardRules card) {
-            if (null == card) {
-                return false;
-            }
-            return this.shouldBeEqual == card.getType().hasType(this.operand);
-        }
-
-        public PredicateCoreType(final CardType.CoreType type, final boolean wantEqual) {
-            this.operand = type;
-            this.shouldBeEqual = wantEqual;
-        }
-    }
-
-    private static class PredicateSuperType implements Predicate<CardRules> {
-        private final CardType.Supertype operand;
-        private final boolean shouldBeEqual;
-
-        @Override
-        public boolean apply(final CardRules card) {
-            return this.shouldBeEqual == card.getType().hasSupertype(this.operand);
-        }
-
-        public PredicateSuperType(final CardType.Supertype type, final boolean wantEqual) {
-            this.operand = type;
-            this.shouldBeEqual = wantEqual;
-        }
-    }
-
-    private static class PredicateSplitType implements Predicate<CardRules> {
-        private final CardSplitType cst;
-
-        public PredicateSplitType(final CardSplitType type) {
-            cst = type;
-        }
-
-        @Override
-        public boolean apply(final CardRules subject) {
-            return subject.getSplitType() == cst;
-        }
-    }
-
-    /**
-     * The Class Presets.
-     */
-    public static class Presets {
-
-        /** The Constant isCreature. */
-        public static final Predicate<CardRules> IS_CREATURE = CardRulesPredicates
-                .coreType(true, CardType.CoreType.Creature);
-
-        public static final Predicate<CardRules> IS_LEGENDARY = CardRulesPredicates
-                .superType(true, CardType.Supertype.Legendary);
-
-        /** The Constant isArtifact. */
-        public static final Predicate<CardRules> IS_ARTIFACT = CardRulesPredicates
-                .coreType(true, CardType.CoreType.Artifact);
-
-        /** The Constant isEquipment. */
-        public static final Predicate<CardRules> IS_EQUIPMENT = CardRulesPredicates
-                .subType("Equipment");
-
-        /** The Constant isLand. */
-        public static final Predicate<CardRules> IS_LAND = CardRulesPredicates.coreType(true, CardType.CoreType.Land);
-
-        /** The Constant isBasicLand. */
-        public static final Predicate<CardRules> IS_BASIC_LAND = new Predicate<CardRules>() {
-            @Override
-            public boolean apply(final CardRules subject) {
-                return subject.getType().isBasicLand();
-            }
-        };
-
-        /** The Constant isBasicLandNotWastes. */
-        public static final Predicate<CardRules> IS_BASIC_LAND_NOT_WASTES = new Predicate<CardRules>() {
-            @Override
-            public boolean apply(final CardRules subject) {
-                return !subject.getName().equals("Wastes")&&subject.getType().isBasicLand();
-            }
-        };
-
-        /** The Constant isNonBasicLand. */
-        public static final Predicate<CardRules> IS_NONBASIC_LAND = new Predicate<CardRules>() {
-            @Override
-            public boolean apply(final CardRules subject) {
-                return subject.getType().isLand() && !subject.getType().isBasicLand();
-            }
-        };
-
-        public static final Predicate<CardRules> CAN_BE_COMMANDER = new Predicate<CardRules>() {
-            @Override
-            public boolean apply(final CardRules subject) {
-                return subject.canBeCommander();
-            }
-        };
-        public static final Predicate<CardRules> CAN_BE_PARTNER_COMMANDER = new Predicate<CardRules>() {
-            @Override
-            public boolean apply(final CardRules subject) {
-                return subject.canBePartnerCommander();
-            }
-        };
-
-        public static final Predicate<CardRules> CAN_BE_OATHBREAKER = new Predicate<CardRules>() {
-            @Override
-            public boolean apply(final CardRules subject) {
-                return subject.canBeOathbreaker();
-            }
-        };
-        public static final Predicate<CardRules> CAN_BE_SIGNATURE_SPELL = new Predicate<CardRules>() {
-            @Override
-            public boolean apply(final CardRules subject) {
-                return subject.canBeSignatureSpell();
-            }
-        };
-
-        public static final Predicate<CardRules> IS_PLANESWALKER = CardRulesPredicates.coreType(true, CardType.CoreType.Planeswalker);
-        public static final Predicate<CardRules> IS_BATTLE = CardRulesPredicates.coreType(true, CardType.CoreType.Battle);
-        public static final Predicate<CardRules> IS_INSTANT = CardRulesPredicates.coreType(true, CardType.CoreType.Instant);
-        public static final Predicate<CardRules> IS_SORCERY = CardRulesPredicates.coreType(true, CardType.CoreType.Sorcery);
-        public static final Predicate<CardRules> IS_ENCHANTMENT = CardRulesPredicates.coreType(true, CardType.CoreType.Enchantment);
-        public static final Predicate<CardRules> IS_PLANE = CardRulesPredicates.coreType(true, CardType.CoreType.Plane);
-        public static final Predicate<CardRules> IS_PHENOMENON = CardRulesPredicates.coreType(true, CardType.CoreType.Phenomenon);
-        public static final Predicate<CardRules> IS_PLANE_OR_PHENOMENON = Predicates.or(IS_PLANE, IS_PHENOMENON);
-        public static final Predicate<CardRules> IS_SCHEME = CardRulesPredicates.coreType(true, CardType.CoreType.Scheme);
-        public static final Predicate<CardRules> IS_VANGUARD = CardRulesPredicates.coreType(true, CardType.CoreType.Vanguard);
-        public static final Predicate<CardRules> IS_CONSPIRACY = CardRulesPredicates.coreType(true, CardType.CoreType.Conspiracy);
-        public static final Predicate<CardRules> IS_DUNGEON = CardRulesPredicates.coreType(true, CardType.CoreType.Dungeon);
-        public static final Predicate<CardRules> IS_NON_LAND = CardRulesPredicates.coreType(false, CardType.CoreType.Land);
-        public static final Predicate<CardRules> CAN_BE_BRAWL_COMMANDER = Predicates.and(Presets.IS_LEGENDARY,
-                Predicates.or(Presets.IS_CREATURE, Presets.IS_PLANESWALKER));
-        public static final Predicate<CardRules> CAN_BE_TINY_LEADERS_COMMANDER = Predicates.and(Presets.IS_LEGENDARY,
-                Predicates.or(Presets.IS_CREATURE, Presets.IS_PLANESWALKER));
-
-        /** The Constant IS_NON_CREATURE_SPELL. **/
-        public static final Predicate<CardRules> IS_NON_CREATURE_SPELL = com.google.common.base.Predicates
-                .or(Presets.IS_SORCERY, Presets.IS_INSTANT, Presets.IS_PLANESWALKER, Presets.IS_ENCHANTMENT,
-                        Predicates.and(Presets.IS_ARTIFACT, Predicates.not(Presets.IS_CREATURE)));
-
-        /** The Constant isWhite. */
-        public static final Predicate<CardRules> IS_WHITE = CardRulesPredicates.isColor(MagicColor.WHITE);
-
-        /** The Constant isBlue. */
-        public static final Predicate<CardRules> IS_BLUE = CardRulesPredicates.isColor(MagicColor.BLUE);
-
-        /** The Constant isBlack. */
-        public static final Predicate<CardRules> IS_BLACK = CardRulesPredicates.isColor(MagicColor.BLACK);
-
-        /** The Constant isRed. */
-        public static final Predicate<CardRules> IS_RED = CardRulesPredicates.isColor(MagicColor.RED);
-
-        /** The Constant isGreen. */
-        public static final Predicate<CardRules> IS_GREEN = CardRulesPredicates.isColor(MagicColor.GREEN);
-
-        /** The Constant isColorless. */
-        public static final Predicate<CardRules> IS_COLORLESS = CardRulesPredicates.hasCntColors((byte) 0);
-
-        /** The Constant isMulticolor. */
-        public static final Predicate<CardRules> IS_MULTICOLOR = CardRulesPredicates.hasAtLeastCntColors((byte) 2);
-
-        /** The Constant isMonocolor. */
-        public static final Predicate<CardRules> IS_MONOCOLOR = CardRulesPredicates.hasCntColors((byte) 1);
-
-        /** The Constant colors. */
-        public static final List<Predicate<CardRules>> COLORS = new ArrayList<>();
-        static {
-            Presets.COLORS.add(Presets.IS_WHITE);
-            Presets.COLORS.add(Presets.IS_BLUE);
-            Presets.COLORS.add(Presets.IS_BLACK);
-            Presets.COLORS.add(Presets.IS_RED);
-            Presets.COLORS.add(Presets.IS_GREEN);
-            Presets.COLORS.add(Presets.IS_COLORLESS);
-        }
-    }
+    public static final Predicate<CardRules> IS_PLANE = CardRulesPredicates.coreType(CardType.CoreType.Plane);
+    public static final Predicate<CardRules> IS_PHENOMENON = CardRulesPredicates.coreType(CardType.CoreType.Phenomenon);
+    public static final Predicate<CardRules> IS_PLANE_OR_PHENOMENON = IS_PLANE.or(IS_PHENOMENON);
+    public static final Predicate<CardRules> IS_SCHEME = CardRulesPredicates.coreType(CardType.CoreType.Scheme);
+    public static final Predicate<CardRules> IS_VANGUARD = CardRulesPredicates.coreType(CardType.CoreType.Vanguard);
+    public static final Predicate<CardRules> IS_CONSPIRACY = CardRulesPredicates.coreType(CardType.CoreType.Conspiracy);
+    public static final Predicate<CardRules> IS_DUNGEON = CardRulesPredicates.coreType(CardType.CoreType.Dungeon);
+    public static final Predicate<CardRules> IS_NON_LAND = CardRulesPredicates.coreType(CardType.CoreType.Land);
+    public static final Predicate<CardRules> IS_WHITE = CardRulesPredicates.isColor(MagicColor.WHITE);
+    public static final Predicate<CardRules> IS_BLUE = CardRulesPredicates.isColor(MagicColor.BLUE);
+    public static final Predicate<CardRules> IS_BLACK = CardRulesPredicates.isColor(MagicColor.BLACK);
+    public static final Predicate<CardRules> IS_RED = CardRulesPredicates.isColor(MagicColor.RED);
+    public static final Predicate<CardRules> IS_GREEN = CardRulesPredicates.isColor(MagicColor.GREEN);
+    public static final Predicate<CardRules> IS_COLORLESS = CardRulesPredicates.hasCntColors((byte) 0);
+    public static final Predicate<CardRules> IS_MULTICOLOR = CardRulesPredicates.hasAtLeastCntColors((byte) 2);
+    public static final Predicate<CardRules> IS_MONOCOLOR = CardRulesPredicates.hasCntColors((byte) 1);
 }

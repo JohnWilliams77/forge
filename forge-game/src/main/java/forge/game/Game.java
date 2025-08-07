@@ -17,14 +17,17 @@
  */
 package forge.game;
 
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
-import com.google.common.collect.*;
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
+import com.google.common.collect.Table;
 import com.google.common.eventbus.EventBus;
 import forge.GameCommand;
 import forge.card.CardRarity;
 import forge.card.CardStateName;
-import forge.card.CardType.Supertype;
 import forge.game.ability.AbilityKey;
 import forge.game.card.*;
 import forge.game.combat.Combat;
@@ -39,6 +42,7 @@ import forge.game.player.*;
 import forge.game.replacement.ReplacementHandler;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityStackInstance;
+import forge.game.staticability.StaticAbilityCantChangeDayTime;
 import forge.game.trigger.TriggerHandler;
 import forge.game.trigger.TriggerType;
 import forge.game.zone.CostPaymentStack;
@@ -46,13 +50,13 @@ import forge.game.zone.MagicStack;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
 import forge.trackable.Tracker;
-import forge.util.Aggregates;
-import forge.util.MyRandom;
-import forge.util.Visitor;
+import forge.util.*;
 import forge.util.collect.FCollection;
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.tuple.Pair;
 
 import java.util.*;
+import java.util.function.Predicate;
 
 /**
  * Represents the state of a <i>single game</i>, a new instance is created for each game.
@@ -88,14 +92,24 @@ public class Game {
     private final GameLog gameLog = new GameLog();
 
     private final Zone stackZone = new Zone(ZoneType.Stack, this);
+    public int AI_TIMEOUT = 5;
+    public boolean AI_CAN_USE_TIMEOUT = true;
 
+    public boolean EXPERIMENTAL_RESTORE_SNAPSHOT = false;
+    // While this is false here, its really set by the Match/Preferences
+
+    // If this merges with LKI In the future, it will need to change forms
+    private GameSnapshot previousGameState = null;
     private CardCollection lastStateBattlefield = new CardCollection();
     private CardCollection lastStateGraveyard = new CardCollection();
 
     private CardZoneTable untilHostLeavesPlayTriggerList = new CardZoneTable();
 
     private Table<CounterType, Player, List<Pair<Card, Integer>>> countersAddedThisTurn = HashBasedTable.create();
-    private Multimap<CounterType, Pair<Card, Integer>> countersRemovedThisTurn = ArrayListMultimap.create();
+    private Multimap<CounterType, Pair<GameEntity, Integer>> countersRemovedThisTurn = ArrayListMultimap.create();
+
+    private List<Card> leftBattlefieldThisTurn = Lists.newArrayList();
+    private List<Card> leftGraveyardThisTurn = Lists.newArrayList();
 
     private FCollection<CardDamageHistory> globalDamageHistory = new FCollection<>();
     private IdentityHashMap<Pair<Integer, Boolean>, Pair<Card, GameEntity>> damageThisTurnLKI = new IdentityHashMap<>();
@@ -103,14 +117,16 @@ public class Game {
     private Map<Player, Card> topLibsCast = Maps.newHashMap();
     private Map<Card, Integer> facedownWhileCasting = Maps.newHashMap();
 
-    private Player monarch;
     private Player initiative;
+    private Player monarch;
     private Player monarchBeginTurn;
     private Player startingPlayer;
 
     private Direction turnOrder = Direction.getDefaultDirection();
 
     private Boolean daytime = null;
+
+    private int numPiledGuessedSA;
 
     private long timestamp = 0;
     public final GameAction action;
@@ -170,6 +186,24 @@ public class Game {
         return lastStateGraveyard;
     }
 
+    public void stashGameState() {
+        // Take a snapshot of the current state to restore to previous state
+        if (EXPERIMENTAL_RESTORE_SNAPSHOT) {
+            previousGameState = new GameSnapshot(this);
+            previousGameState.makeCopy();
+        }
+    }
+
+    public boolean restoreGameState() {
+        // Restore game state snapshot
+        if (previousGameState == null || !EXPERIMENTAL_RESTORE_SNAPSHOT) {
+            return false;
+        }
+
+        previousGameState.restoreGameState(this);
+        return true;
+    }
+
     public void copyLastState() {
         lastStateBattlefield.clear();
         lastStateGraveyard.clear();
@@ -208,8 +242,9 @@ public class Game {
                 : null;
 
         if (lookup != null) {
-            lookup.remove(c);
-            lookup.add(CardUtil.getLKICopy(c));
+            lastStateBattlefield.remove(c);
+            lastStateGraveyard.remove(c);
+            lookup.add(CardCopyService.getLKICopy(c));
         }
     }
 
@@ -217,26 +252,57 @@ public class Game {
     public Player getPlayer(PlayerView playerView) {
         return playerCache.get(playerView);
     }
+
+    public Player getPlayer(int id) {
+        for(Player p : allPlayers) {
+            if (p.getId() == id) {
+                return p;
+            }
+        }
+        return null;
+    }
+
     public void addPlayer(int id, Player player) {
-        playerCache.put(Integer.valueOf(id), player);
+        playerCache.put(id, player);
     }
 
     // methods that deal with saving, retrieving and clearing LKI information about cards on zone change
-    private final HashMap<Integer, Card> changeZoneLKIInfo = new HashMap<>();
+    private final Table<Integer, Long, Card> changeZoneLKIInfo = HashBasedTable.create();
     public final void addChangeZoneLKIInfo(Card lki) {
         if (lki == null) {
             return;
         }
-        changeZoneLKIInfo.put(lki.getId(), lki);
+        changeZoneLKIInfo.put(lki.getId(), lki.getGameTimestamp(), lki);
     }
     public final Card getChangeZoneLKIInfo(Card c) {
         if (c == null) {
             return null;
         }
-        return changeZoneLKIInfo.getOrDefault(c.getId(), c);
+        return ObjectUtils.defaultIfNull(changeZoneLKIInfo.get(c.getId(), c.getGameTimestamp()), c);
     }
     public final void clearChangeZoneLKIInfo() {
         changeZoneLKIInfo.clear();
+    }
+
+    public void addLeftBattlefieldThisTurn(Card lki) {
+        leftBattlefieldThisTurn.add(lki);
+    }
+    public void addLeftGraveyardThisTurn(Card lki) {
+        leftGraveyardThisTurn.add(lki);
+    }
+
+    public List<Card> getLeftBattlefieldThisTurn() {
+        return leftBattlefieldThisTurn;
+    }
+    public List<Card> getLeftGraveyardThisTurn() {
+        return leftGraveyardThisTurn;
+    }
+
+    public void clearLeftBattlefieldThisTurn() {
+        leftBattlefieldThisTurn.clear();
+    }
+    public void clearLeftGraveyardThisTurn() {
+        leftGraveyardThisTurn.clear();
     }
 
     public Game(Iterable<RegisteredPlayer> players0, GameRules rules0, Match match0) {
@@ -264,7 +330,9 @@ public class Game {
         int plId = 0;
         for (RegisteredPlayer psc : players0) {
             IGameEntitiesFactory factory = (IGameEntitiesFactory)psc.getPlayer();
-            Player pl = factory.createIngamePlayer(this, plId++);
+            // If the Registered Player already has a pre-assigned ID, use that. Otherwise, assign a new one.
+            Integer id = psc.getId();
+            Player pl = factory.createIngamePlayer(this, id == null ? plId++ : id);
             allPlayers.add(pl);
             ingamePlayers.add(pl);
 
@@ -335,6 +403,14 @@ public class Game {
         }
         final PlayerCollection players = new PlayerCollection(ingamePlayers);
         Collections.reverse(players);
+        return players;
+    }
+
+    public final PlayerCollection getPlayersInTurnOrder(Player p) {
+        final PlayerCollection players = new PlayerCollection(getPlayersInTurnOrder());
+
+        int i = players.indexOf(p);
+        Collections.rotate(players, -i);
         return players;
     }
 
@@ -432,17 +508,14 @@ public class Game {
     }
 
     public CardCollectionView getCardsPlayerCanActivateInStack() {
-        return CardLists.filter(stackZone.getCards(), new Predicate<Card>() {
-            @Override
-            public boolean apply(final Card c) {
-                for (final SpellAbility sa : c.getSpellAbilities()) {
-                    final ZoneType restrictZone = sa.getRestrictions().getZone();
-                    if (ZoneType.Stack == restrictZone) {
-                        return true;
-                    }
+        return CardLists.filter(stackZone.getCards(), c -> {
+            for (final SpellAbility sa : c.getSpellAbilities()) {
+                final ZoneType restrictZone = sa.getRestrictions().getZone();
+                if (ZoneType.Stack == restrictZone) {
+                    return true;
                 }
-                return false;
             }
+            return false;
         });
     }
 
@@ -450,7 +523,7 @@ public class Game {
      * The Direction in which the turn order of this Game currently proceeds.
      */
     public final Direction getTurnOrder() {
-        if (phaseHandler.getPlayerTurn() != null && phaseHandler.getPlayerTurn().getAmountOfKeyword("The turn order is reversed.") % 2 == 1) {
+        if (phaseHandler.getPlayerTurn() != null && phaseHandler.getPlayerTurn().isTurnOrderReversed()) {
             return turnOrder.getOtherDirection();
         }
     	return turnOrder;
@@ -471,6 +544,10 @@ public class Game {
     }
     public final long getTimestamp() {
         return timestamp;
+    }
+
+    public void dangerouslySetTimestamp(long timestamp) {
+        this.timestamp = timestamp;
     }
 
     public final GameOutcome getOutcome() {
@@ -516,7 +593,7 @@ public class Game {
     }
 
     public Zone getZoneOf(final Card card) {
-        return card.getLastKnownZone();
+        return card == null ? null : card.getLastKnownZone();
     }
 
     public synchronized CardCollectionView getCardsIn(final ZoneType zone) {
@@ -559,11 +636,11 @@ public class Game {
     }
 
     public boolean isCardInPlay(final String cardName) {
-        return Iterables.any(getCardsIn(ZoneType.Battlefield), CardPredicates.nameEquals(cardName));
+        return getCardsIn(ZoneType.Battlefield).anyMatch(CardPredicates.nameEquals(cardName));
     }
 
     public boolean isCardInCommand(final String cardName) {
-        return Iterables.any(getCardsIn(ZoneType.Command), CardPredicates.nameEquals(cardName));
+        return getCardsIn(ZoneType.Command).anyMatch(CardPredicates.nameEquals(cardName));
     }
 
     public CardCollectionView getColoredCardsInPlay(final String color) {
@@ -646,8 +723,11 @@ public class Game {
         return visit.getFound();
     }
 
-    // Allows visiting cards in game without allocating a temporary list.
     public void forEachCardInGame(Visitor<Card> visitor) {
+        forEachCardInGame(visitor, false);
+    }
+    // Allows visiting cards in game without allocating a temporary list.
+    public void forEachCardInGame(Visitor<Card> visitor, boolean withSideboard) {
         for (final Player player : getPlayers()) {
             if (!visitor.visitAll(player.getZone(ZoneType.Graveyard).getCards())) {
                 return;
@@ -664,7 +744,10 @@ public class Game {
             if (!visitor.visitAll(player.getZone(ZoneType.Exile).getCards())) {
                 return;
             }
-            if (!visitor.visitAll(player.getZone(ZoneType.Command).getCards())) {
+            if (!visitor.visitAll(player.getCardsIn(ZoneType.PART_OF_COMMAND_ZONE))) {
+                return;
+            }
+            if (withSideboard && !visitor.visitAll(player.getZone(ZoneType.Sideboard).getCards())) {
                 return;
             }
             if (!visitor.visitAll(player.getInboundTokens())) {
@@ -760,8 +843,9 @@ public class Game {
         // Rule 800.4 Losing a Multiplayer game
         CardCollectionView cards = this.getCardsInGame();
         boolean planarControllerLost = false;
+        boolean planarOwnerLost = false;
         boolean isMultiplayer = getPlayers().size() > 2;
-        CardZoneTable triggerList = new CardZoneTable();
+        CardZoneTable triggerList = new CardZoneTable(getLastStateBattlefield(), getLastStateGraveyard());
 
         // 702.142f & 707.9
         // If a player leaves the game, all face-down cards that player owns must be revealed to all players.
@@ -782,25 +866,36 @@ public class Game {
         }
 
         for (Card c : cards) {
-            if (c.getController().equals(p) && (c.isPlane() || c.isPhenomenon())) {
-                planarControllerLost = true;
+            if (c.isPlane() || c.isPhenomenon()) {
+                if (c.getController().equals(p)) {
+                    planarControllerLost = true;
+                }
+                if (c.getOwner().equals(p)) {
+                    planarOwnerLost = true;
+                }
             }
 
             if (isMultiplayer) {
                 // unattach all "Enchant Player"
                 c.removeAttachedTo(p);
                 if (c.getOwner().equals(p)) {
-                    for (Card cc : cards) {
-                        cc.removeImprintedCard(c);
-                        cc.removeEncodedCard(c);
-                        cc.removeRemembered(c);
-                        cc.removeAttachedTo(c);
-                        cc.removeAttachedCard(c);
+                    if (c.getEffectSource() != null && !c.isEmblem()) {
+                        // move effect to another player so they continue to work
+                        c.getZone().remove(c);
+                        getNextPlayerAfter(p).getZone(ZoneType.Command).add(c);
+                    } else {
+                        for (Card cc : cards) {
+                            cc.removeImprintedCard(c);
+                            cc.removeEncodedCard(c);
+                            cc.removeRemembered(c);
+                            cc.removeAttachedTo(c);
+                            cc.removeAttachedCard(c);
+                        }
+                        triggerList.put(c.getZone().getZoneType(), null, c);
+                        getAction().ceaseToExist(c, false);
+                        // CR 603.2f owner of trigger source lost game
+                        getTriggerHandler().clearDelayedTrigger(c);
                     }
-                    triggerList.put(c.getZone().getZoneType(), null, c);
-                    getAction().ceaseToExist(c, false);
-                    // CR 603.2f owner of trigger source lost game
-                    getTriggerHandler().clearDelayedTrigger(c);
                 } else {
                     // return stolen permanents
                     if (c.isInPlay() && (c.getController().equals(p) || c.getZone().getPlayer().equals(p))) {
@@ -811,10 +906,12 @@ public class Game {
                     // return stolen spells
                     if (c.isInZone(ZoneType.Stack)) {
                         SpellAbilityStackInstance si = getStack().getInstanceMatchingSpellAbilityID(c.getCastSA());
-                        si.setActivatingPlayer(c.getController());
+                        if (si != null) {
+                            si.setActivatingPlayer(c.getController());
+                        }
                     }
-                    if (c.getController().equals(p)) {
-                        getAction().exile(c, null);
+                    if (c.getController().equals(p) && !(c.isPlane() || c.isPhenomenon())) {
+                        getAction().exile(c, null, null);
                         triggerList.put(ZoneType.Battlefield, c.getZone().getZoneType(), c);
                     }
                 }
@@ -826,22 +923,44 @@ public class Game {
         triggerList.triggerChangesZoneAll(this, null);
 
         // 901.6: If the current planar controller would leave the game, instead the next player
-        // in turn order that wouldn’t leave the game becomes the planar controller, then the old
+        // in turn order that wouldn't leave the game becomes the planar controller, then the old
         // planar controller leaves
+        if (planarControllerLost) {
+            for (Card c : getActivePlanes()) {
+                if (c != null && !c.getOwner().equals(p)) {
+                    c.setController(getNextPlayerAfter(p), 0);
+                    getAction().controllerChangeZoneCorrection(c);
+                }
+            }
+        }
         // 901.10: When a player leaves the game, all objects owned by that player except abilities
         // from phenomena leave the game. (See rule 800.4a.) If that includes a face-up plane card
         // or phenomenon card, the planar controller turns the top card of his or her planar deck face up.the game.
-        if (planarControllerLost) {
-            getNextPlayerAfter(p).initPlane();
+        if (planarOwnerLost) {
+            Player planarController = getPhaseHandler().getPlayerTurn();
+            if (planarController.equals(p)) {
+                planarController = getNextPlayerAfter(p);
+            }
+            final Map<AbilityKey, Object> runParams = AbilityKey.newMap();
+            CardCollection planesLeavingGame =  new CardCollection();
+            for (Card c : getActivePlanes()) {
+                if (c != null && c.getOwner().equals(p)) {
+                    planesLeavingGame.add(c);
+                    planarController.removeCurrentPlane(c);
+                }
+            }
+            runParams.put(AbilityKey.Cards, planesLeavingGame);
+            getTriggerHandler().runTrigger(TriggerType.PlaneswalkedFrom, runParams, false);
+            planarController.planeswalk(null);
         }
 
         if (p.isMonarch()) {
             // if the player who lost was the Monarch, someone else will be the monarch
             // TODO need to check rules if it should try the next player if able
             if (p.equals(getPhaseHandler().getPlayerTurn())) {
-                getAction().becomeMonarch(getNextPlayerAfter(p), null);
+                getAction().becomeMonarch(getNextPlayerAfter(p), p.getMonarchSet());
             } else {
-                getAction().becomeMonarch(getPhaseHandler().getPlayerTurn(), null);
+                getAction().becomeMonarch(getPhaseHandler().getPlayerTurn(), p.getMonarchSet());
             }
         }
 
@@ -851,22 +970,22 @@ public class Game {
             // If the player who has the initiative leaves the game on their own turn,
             // or the active player left the game at the same time, the next player in turn order takes the initiative.
             if (p.equals(getPhaseHandler().getPlayerTurn())) {
-                getAction().takeInitiative(getNextPlayerAfter(p), null);
+                getAction().takeInitiative(getNextPlayerAfter(p), p.getInitiativeSet());
             } else {
-                getAction().takeInitiative(getPhaseHandler().getPlayerTurn(), null);
+                getAction().takeInitiative(getPhaseHandler().getPlayerTurn(), p.getInitiativeSet());
             }
         }
 
         // Remove leftover items from
         getStack().removeInstancesControlledBy(p);
 
-        getTriggerHandler().onPlayerLost(p);
-
         ingamePlayers.remove(p);
         lostPlayers.add(p);
 
         final Map<AbilityKey, Object> runParams = AbilityKey.mapFromPlayer(p);
         getTriggerHandler().runTrigger(TriggerType.LosesGame, runParams, false);
+
+        getTriggerHandler().onPlayerLost(p);
     }
 
     /**
@@ -889,36 +1008,6 @@ public class Game {
     }
     public void setActivePlanes(List<Card> activePlane0) {
         activePlanes = activePlane0;
-    }
-
-    public void archenemy904_10() {
-        //904.10. If a non-ongoing scheme card is face up in the
-        //command zone, and it isn't the source of a triggered ability
-        //that has triggered but not yet left the stack, that scheme card
-        //is turned face down and put on the bottom of its owner's scheme
-        //deck the next time a player would receive priority.
-        //(This is a state-based action. See rule 704.)
-
-        for (int i = 0; i < getCardsIn(ZoneType.Command).size(); i++) {
-            Card c = getCardsIn(ZoneType.Command).get(i);
-            if (c.isScheme() && !c.getType().hasSupertype(Supertype.Ongoing)) {
-                boolean foundonstack = false;
-                for (SpellAbilityStackInstance si : stack) {
-                    if (si.getSourceCard().equals(c)) {
-                        foundonstack = true;
-                        break;
-                    }
-                }
-                if (!foundonstack) {
-                    getTriggerHandler().suppressMode(TriggerType.ChangesZone);
-                    c.getController().getZone(ZoneType.Command).remove(c);
-                    i--;
-                    getTriggerHandler().clearSuppression(TriggerType.ChangesZone);
-
-                    c.getController().getZone(ZoneType.SchemeDeck).add(c);
-                }
-            }
-        }
     }
 
     public GameStage getAge() {
@@ -1014,8 +1103,8 @@ public class Game {
 
     private void chooseRandomCardsForAnte(final Player player, final Multimap<Player, Card> anteed) {
         final CardCollectionView lib = player.getCardsIn(ZoneType.Library);
-        Predicate<Card> goodForAnte = Predicates.not(CardPredicates.Presets.BASIC_LANDS);
-        Card ante = Aggregates.random(Iterables.filter(lib, goodForAnte));
+        Predicate<Card> goodForAnte = CardPredicates.BASIC_LANDS.negate();
+        Card ante = Aggregates.random(IterableUtil.filter(lib, goodForAnte));
         if (ante == null) {
             getGameLog().add(GameLogEntryType.ANTE, "Only basic lands found. Will ante one of them");
             ante = Aggregates.random(lib);
@@ -1075,13 +1164,32 @@ public class Game {
         return result;
     }
 
+    public void incPiledGuessedSA() {
+        numPiledGuessedSA++;
+    }
+    public int getNumPiledGuessedSA() {
+        return numPiledGuessedSA;
+    }
+    public void resetNumPiledGuessedSA() {
+        numPiledGuessedSA = 0;
+    }
+
     public void onCleanupPhase() {
+        resetNumPiledGuessedSA();
+        clearLeftBattlefieldThisTurn();
+        clearLeftGraveyardThisTurn();
         clearCounterAddedThisTurn();
         clearCounterRemovedThisTurn();
         clearGlobalDamageHistory();
         // some cards need this info updated even after a player lost, so don't skip them
         for (Player player : getRegisteredPlayers()) {
             player.onCleanupPhase();
+        }
+        for (final Card c : getCardsIncludePhasingIn(ZoneType.Battlefield)) {
+            c.onCleanupPhase(getPhaseHandler().getPlayerTurn());
+        }
+        for (final Card card : getCardsInGame()) {
+            card.resetActivationsPerTurn();
         }
     }
 
@@ -1094,34 +1202,48 @@ public class Game {
             result = Lists.newArrayList();
             countersAddedThisTurn.put(cType, putter, result);
         }
-        result.add(Pair.of(CardUtil.getLKICopy(card), value));
+        result.add(Pair.of(CardCopyService.getLKICopy(card), value));
     }
 
     public int getCounterAddedThisTurn(CounterType cType, String validPlayer, String validCard, Card source, Player sourceController, CardTraitBase ctb) {
         int result = 0;
-        if (!countersAddedThisTurn.containsRow(cType)) {
+        Set<CounterType> types = null;
+        if (cType == null) {
+            types = countersAddedThisTurn.rowKeySet();
+        } else if (!countersAddedThisTurn.containsRow(cType)) {
             return result;
+        } else {
+            types = Sets.newHashSet(cType);
         }
-        for (Map.Entry<Player, List<Pair<Card, Integer>>> e : countersAddedThisTurn.row(cType).entrySet()) {
-           if (e.getKey().isValid(validPlayer.split(","), sourceController, source, ctb)) {
-               for (Pair<Card, Integer> p : e.getValue()) {
-                   if (p.getKey().isValid(validCard.split(","), sourceController, source, ctb)) {
-                       result += p.getValue();
-                   }
-               }
-           }
+        for (CounterType type : types) {
+            for (Map.Entry<Player, List<Pair<Card, Integer>>> e : countersAddedThisTurn.row(type).entrySet()) {
+                if (e.getKey().isValid(validPlayer.split(","), sourceController, source, ctb)) {
+                    for (Pair<Card, Integer> p : e.getValue()) {
+                        if (p.getKey().isValid(validCard.split(","), sourceController, source, ctb)) {
+                            result += p.getValue();
+                        }
+                    }
+                }
+            }
         }
         return result;
     }
     public int getCounterAddedThisTurn(CounterType cType, Card card) {
         int result = 0;
-        if (!countersAddedThisTurn.containsRow(cType)) {
+        Set<CounterType> types = null;
+        if (cType == null) {
+            types = countersAddedThisTurn.rowKeySet();
+        } else if (!countersAddedThisTurn.containsRow(cType)) {
             return result;
+        } else {
+            types = Sets.newHashSet(cType);
         }
-        for (List<Pair<Card, Integer>> l : countersAddedThisTurn.row(cType).values()) {
-            for (Pair<Card, Integer> p : l) {
-                if (p.getKey().equalsWithTimestamp(card)) {
-                    result += p.getValue();
+        for (CounterType type : types) {
+            for (List<Pair<Card, Integer>> l : countersAddedThisTurn.row(type).values()) {
+                for (Pair<Card, Integer> p : l) {
+                    if (p.getKey().equalsWithGameTimestamp(card)) {
+                        result += p.getValue();
+                    }
                 }
             }
         }
@@ -1133,13 +1255,17 @@ public class Game {
     }
 
     public void addCounterRemovedThisTurn(CounterType cType, Card card, Integer value) {
-        countersRemovedThisTurn.put(cType, Pair.of(CardUtil.getLKICopy(card), value));
+        countersRemovedThisTurn.put(cType, Pair.of(CardCopyService.getLKICopy(card), value));
     }
 
-    public int getCounterRemovedThisTurn(CounterType cType, String validCard, Card source, Player sourceController, CardTraitBase ctb) {
+    public void addCounterRemovedThisTurn(CounterType cType, Player player, Integer value) {
+        countersRemovedThisTurn.put(cType, Pair.of(player, value));
+    }
+
+    public int getCounterRemovedThisTurn(CounterType cType, String valid, Card source, Player sourceController, CardTraitBase ctb) {
         int result = 0;
-        for (Pair<Card, Integer> p : countersRemovedThisTurn.get(cType)) {
-            if (p.getKey().isValid(validCard.split(","), sourceController, source, ctb)) {
+        for (Pair<GameEntity, Integer> p : countersRemovedThisTurn.get(cType)) {
+            if (p.getKey().isValid(valid.split(","), sourceController, source, ctb)) {
                 result += p.getValue();
             }
         }
@@ -1223,7 +1349,7 @@ public class Game {
         }
     }
     public void addFacedownWhileCasting(Card c, int numDrawn) {
-        facedownWhileCasting.put(c, Integer.valueOf(numDrawn));
+        facedownWhileCasting.put(c, numDrawn);
     }
 
     public boolean isDay() {
@@ -1240,6 +1366,9 @@ public class Game {
         return this.daytime;
     }
     public void setDayTime(Boolean value) {
+        if (StaticAbilityCantChangeDayTime.cantChangeDay(this, value)) {
+            return;
+        }
         Boolean previous = this.daytime;
         this.daytime = value;
 
@@ -1249,5 +1378,17 @@ public class Game {
         }
         if (!isNeitherDayNorNight())
             fireEvent(new GameEventDayTimeChanged(isDay()));
+    }
+
+    public boolean isVoid() {
+        return getLeftBattlefieldThisTurn().stream().anyMatch(c -> !c.isLand()) ||
+                getStack().getSpellsCastThisTurn().stream().anyMatch(s -> s.getCastSA().isWarp());
+    }
+
+    public int getAITimeout() {
+        return AI_TIMEOUT;
+    }
+    public boolean canUseTimeout() {
+        return AI_CAN_USE_TIMEOUT;
     }
 }

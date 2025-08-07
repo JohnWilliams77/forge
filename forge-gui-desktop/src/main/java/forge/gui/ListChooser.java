@@ -25,6 +25,7 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Function;
 
 import javax.swing.AbstractListModel;
 import javax.swing.DefaultListCellRenderer;
@@ -36,7 +37,6 @@ import javax.swing.WindowConstants;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
 
-import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -152,30 +152,29 @@ public class ListChooser<T> {
 
     /** @return boolean */
     public boolean show() {
-        return show(list.get(0));
+        return show(null);
     }
 
     /**
      * Shows the dialog and returns after the dialog was closed.
-     *
-     * @param index0 index to select when shown
-     * @return a boolean.
      */
-    public boolean show(final T item) {
+    public boolean show(final Collection<T> item) {
         if (this.called) {
             throw new IllegalStateException("Already shown");
         }
         int result;
         do {
-            SwingUtilities.invokeLater(new Runnable() { //invoke later so selected item not set until dialog open
-                @Override
-                public void run() {
-                    if (list.contains(item)) {
-                        lstChoices.setSelectedValue(item, true);
-                    }
-                    else {
-                        lstChoices.setSelectedIndex(0);
-                    }
+            //invoke later so selected item not set until dialog open
+            SwingUtilities.invokeLater(() -> {
+                if (item != null) {
+                    int[] indices = item.stream()
+                            .mapToInt(list::indexOf)
+                            .filter(i -> i >= 0)
+                            .toArray();
+                    lstChoices.setSelectedIndices(indices);
+                }
+                else {
+                    lstChoices.setSelectedIndex(0);
                 }
             });
             this.optionPane.setVisible(true);

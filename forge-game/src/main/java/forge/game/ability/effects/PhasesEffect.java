@@ -1,7 +1,11 @@
 package forge.game.ability.effects;
 
 import java.util.List;
+import java.util.Map;
 
+import forge.game.ability.AbilityKey;
+import forge.game.card.CardCollection;
+import forge.game.trigger.TriggerType;
 import forge.util.Lang;
 
 import forge.game.Game;
@@ -11,16 +15,11 @@ import forge.game.card.Card;
 import forge.game.card.CardCollectionView;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
+import forge.game.staticability.StaticAbilityCantPhase;
 import forge.game.zone.ZoneType;
 import forge.util.Localizer;
 
 public class PhasesEffect extends SpellAbilityEffect {
-
-    // ******************************************
-    // ************** Phases ********************
-    // ******************************************
-    // Phases generally Phase Out. Time and Tide is the only card that can force
-    // Phased Out cards in.
 
     /* (non-Javadoc)
      * @see forge.card.abilityfactory.SpellEffect#resolve(java.util.Map, forge.card.spellability.SpellAbility)
@@ -51,46 +50,77 @@ public class PhasesEffect extends SpellAbilityEffect {
                 tgtCards = game.getCardsIn(ZoneType.Battlefield);
             }
             tgtCards = AbilityUtils.filterListByType(tgtCards, sa.getParam("AllValid"), sa);
-        } else if (sa.hasParam("Defined")) {
-            tgtCards = AbilityUtils.getDefinedCards(source, sa.getParam("Defined"), sa);
         } else {
-            tgtCards = getTargetCards(sa);
+            tgtCards = getDefinedCardsOrTargeted(sa);
         }
         if (sa.hasParam("AnyNumber")) {
             tgtCards = activator.getController().chooseCardsForEffect(tgtCards, sa,
                     Localizer.getInstance().getMessage("lblChooseAnyNumberToPhase"),
                     0, tgtCards.size(), true, null);
         }
+
+        CardCollection phasedOut = new CardCollection();
         if (phaseInOrOut) { // Time and Tide and Oubliette
+            CardCollection toPhase = new CardCollection();
             for (final Card tgtC : tgtCards) {
-                tgtC.phase(false);
-                if (!tgtC.isPhasedOut()) {
+                if (tgtC.isPhasedOut() && StaticAbilityCantPhase.cantPhaseIn(tgtC)) {
+                    continue;
+                }
+                if (!tgtC.isPhasedOut() && StaticAbilityCantPhase.cantPhaseOut(tgtC)) {
+                    continue;
+                }
+                toPhase.add(tgtC);
+            }
+            for (final Card tgtC : toPhase) {
+                Card gameCard = game.getCardState(tgtC, null);
+                // gameCard is LKI in that case, the card is not in game anymore
+                // or the timestamp did change
+                // this should check Self too
+                if (gameCard == null || !tgtC.equalsWithGameTimestamp(gameCard)) {
+                    continue;
+                }
+                gameCard.phase(false);
+                if (gameCard.isPhasedOut()) {
+                    phasedOut.add(gameCard);
+                    gameCard.setWontPhaseInNormal(wontPhaseInNormal);
+                } else {
                     // won't trigger tap or untap triggers when phase in
                     if (sa.hasParam("Tapped")) {
-                        tgtC.setTapped(true);
+                        gameCard.setTapped(true);
                     } else if (sa.hasParam("Untapped")) {
-                        tgtC.setTapped(false);
+                        gameCard.setTapped(false);
                     }
-                    tgtC.setWontPhaseInNormal(false);
-                } else {
-                    tgtC.setWontPhaseInNormal(wontPhaseInNormal);
+                    gameCard.setWontPhaseInNormal(false);
                 }
             }
         } else { // just phase out
             for (final Card tgtC : tgtCards) {
-                if (!tgtC.isPhasedOut()) {
-                    tgtC.phase(false);
-                    if (tgtC.isPhasedOut()) {
+                Card gameCard = game.getCardState(tgtC, null);
+                // gameCard is LKI in that case, the card is not in game anymore
+                // or the timestamp did change
+                // this should check Self too
+                if (gameCard == null || !tgtC.equalsWithGameTimestamp(gameCard)) {
+                    continue;
+                }
+                if (!gameCard.isPhasedOut() && !StaticAbilityCantPhase.cantPhaseOut(gameCard)) {
+                    gameCard.phase(false);
+                    if (gameCard.isPhasedOut()) {
                         if (sa.hasParam("RememberAffected")) {
-                            source.addRemembered(tgtC);
+                            source.addRemembered(gameCard);
                         }
-                        tgtC.setWontPhaseInNormal(wontPhaseInNormal);
+                        phasedOut.add(gameCard);
+                        gameCard.setWontPhaseInNormal(wontPhaseInNormal);
                     }
                 }
             }
         }
         if (sa.hasParam("RememberValids")) {
             source.addRemembered(tgtCards);
+        }
+        if (!phasedOut.isEmpty()) {
+            final Map<AbilityKey, Object> runParams = AbilityKey.newMap();
+            runParams.put(AbilityKey.Cards, phasedOut);
+            game.getTriggerHandler().runTrigger(TriggerType.PhaseOutAll, runParams, false);
         }
     }
 }

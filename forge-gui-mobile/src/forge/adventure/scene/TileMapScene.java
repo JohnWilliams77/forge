@@ -6,8 +6,10 @@ import com.badlogic.gdx.maps.tiled.TiledMap;
 import com.google.common.collect.Lists;
 import forge.Forge;
 import forge.adventure.pointofintrest.PointOfInterest;
+import forge.adventure.pointofintrest.PointOfInterestChanges;
 import forge.adventure.stage.MapStage;
 import forge.adventure.stage.PointOfInterestMapRenderer;
+import forge.adventure.stage.WorldStage;
 import forge.adventure.util.*;
 import forge.adventure.world.WorldSave;
 import forge.sound.SoundEffectType;
@@ -19,7 +21,7 @@ import java.util.ArrayList;
  * Scene that will render tiled maps.
  * Used for towns dungeons etc
  */
-public class TileMapScene extends HudScene   {
+public class TileMapScene extends HudScene {
     TiledMap map;
     PointOfInterestMapRenderer tiledMapRenderer;
     private String nextMap;
@@ -37,8 +39,8 @@ public class TileMapScene extends HudScene   {
     private static TileMapScene object;
 
     public static TileMapScene instance() {
-        if(object==null)
-            object=new TileMapScene();
+        if (object == null)
+            object = new TileMapScene();
         return object;
     }
 
@@ -64,7 +66,7 @@ public class TileMapScene extends HudScene   {
         stage.act(Gdx.graphics.getDeltaTime());
         hud.act(Gdx.graphics.getDeltaTime());
         if (autoheal) {
-            stage.getPlayerSprite().playEffect(Paths.EFFECT_HEAL,2);
+            stage.getPlayerSprite().playEffect(Paths.EFFECT_HEAL, 2);
             SoundSystem.instance.play(SoundEffectType.Enchantment, false);
             autoheal = false;
         }
@@ -96,10 +98,36 @@ public class TileMapScene extends HudScene   {
             if (Current.player().fullHeal())
                 autoheal = true; // to play sound/effect on act
         }
+        if (WorldSave.getCurrentSave().getPlayer().hasAnnounceFantasy()) {
+            WorldSave.getCurrentSave().getPlayer().clearAnnounceFantasy();
+            MapStage.getInstance().showDeckAwardDialog("{BLINK=WHITE;RED}" +
+                    Forge.getLocalizer().getMessage("lblMode") + " " +
+                    Forge.getLocalizer().getMessage("lblChaos") + "{ENDBLINK}\n" +
+                    Forge.getLocalizer().getMessage("lblChaosModeDescription"),
+                    WorldSave.getCurrentSave().getPlayer().getSelectedDeck(), this::initializeDialogs);
+        } else if (WorldSave.getCurrentSave().getPlayer().hasAnnounceCustom()) {
+            WorldSave.getCurrentSave().getPlayer().clearAnnounceCustom();
+            MapStage.getInstance().showDeckAwardDialog("{GRADIENT}" +
+                    Forge.getLocalizer().getMessage("lblMode") + " " +
+                    Forge.getLocalizer().getMessage("lblCustom") + "{ENDGRADIENT}\n" +
+                    Forge.getLocalizer().getMessage("lblCustomModeDescription"),
+                    WorldSave.getCurrentSave().getPlayer().getSelectedDeck(), this::initializeDialogs);
+        } else {
+            initializeDialogs();
+        }
+    }
+
+    private void initializeDialogs() {
         AdventureQuestController.instance().updateEnteredPOI(rootPoint);
         AdventureQuestController.instance().showQuestDialogs(stage);
-
-
+    }
+    @Override
+    public boolean leave() {
+        // clear player collision on WorldStage and the GameHUD will restore it after the flicker animation.
+        // There's at least 2 seconds to get away from problematic collision point and player can retry
+        // a few times to move to different position if the POI is loaded again from WorldStage
+        WorldStage.getInstance().getPlayerSprite().clearCollisionHeight();
+        return super.leave();
     }
 
     public void load(PointOfInterest point) {
@@ -107,14 +135,15 @@ public class TileMapScene extends HudScene   {
         rootPoint = point;
         oldMap = point.getData().map;
         map = new TemplateTmxMapLoader().load(Config.instance().getCommonFilePath(point.getData().map));
-        ((MapStage) stage).setPointOfInterest(WorldSave.getCurrentSave().getPointOfInterestChanges(point.getID() + oldMap));
+        ((MapStage) stage).setPointOfInterest(getPointOfInterestChanges());
         stage.getPlayerSprite().setPosition(0, 0);
         WorldSave.getCurrentSave().getWorld().setSeed(point.getSeedOffset());
-        tiledMapRenderer.loadMap(map, "", oldMap,0);
+        tiledMapRenderer.loadMap(map, "", oldMap, 0);
         stage.getPlayerSprite().stop();
     }
 
     private final static ArrayList<String> AUTO_HEAL_LOCATIONS = Lists.newArrayList("capital", "town");
+
     public boolean isAutoHealLocation() {
         return AUTO_HEAL_LOCATIONS.contains(rootPoint.getData().type);
     }
@@ -124,7 +153,7 @@ public class TileMapScene extends HudScene   {
 
     private void load(String targetMap, int nextSpawnPoint) {
         map = new TemplateTmxMapLoader().load(Config.instance().getFilePath(targetMap));
-        ((MapStage) stage).setPointOfInterest(WorldSave.getCurrentSave().getPointOfInterestChanges(rootPoint.getID() + targetMap));
+        ((MapStage) stage).setPointOfInterest(getPointOfInterestChanges(targetMap));
         stage.getPlayerSprite().setPosition(0, 0);
         WorldSave.getCurrentSave().getWorld().setSeed(rootPoint.getSeedOffset());
         tiledMapRenderer.loadMap(map, oldMap, targetMap, nextSpawnPoint);
@@ -132,16 +161,25 @@ public class TileMapScene extends HudScene   {
         stage.getPlayerSprite().stop();
     }
 
+    public PointOfInterestChanges getPointOfInterestChanges() {
+        return WorldSave.getCurrentSave().getPointOfInterestChanges(rootPoint.getID());
+    }
+
+    public PointOfInterestChanges getPointOfInterestChanges(String targetMap) {
+        if (rootPoint.getID().endsWith(targetMap))
+            return getPointOfInterestChanges();
+        return WorldSave.getCurrentSave().getPointOfInterestChanges(rootPoint.getID() + targetMap);
+    }
+
 
     @Override
     public boolean isInHudOnlyMode() {
-        return MapStage.getInstance().getDialogOnlyInput();
+        return MapStage.getInstance().isDialogOnlyInput();
     }
 
     public void loadNext(String targetMap, int entryTargetObject) {
         nextMap = targetMap;
         nextSpawnPoint = entryTargetObject;
     }
-
 }
 

@@ -20,9 +20,11 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import forge.ImageCache;
 import org.apache.commons.lang3.StringUtils;
 
 import forge.card.CardRarity;
+import forge.card.CardStateName;
 import forge.card.mana.ManaCost;
 import forge.game.card.CardView;
 import forge.game.card.CardView.CardStateView;
@@ -182,9 +184,9 @@ public class FCardImageRenderer {
             int w = width;
             boolean hasPTBox = false;
             if (!card.isSplitCard() && !card.isFlipCard()) {
-                final CardStateView state = card.getState(card.isAdventureCard() ? false : altState);
+                final CardStateView state = card.getState(card.hasSecondaryState() ? false : altState);
                 if ((state.isCreature() && !state.getKeywordKey().contains("Level up"))
-                        || state.isPlaneswalker() || state.isVehicle())
+                        || state.isPlaneswalker() || state.isBattle() || state.isVehicle())
                     hasPTBox = true;
             }
             if (hasPTBox) {
@@ -203,13 +205,12 @@ public class FCardImageRenderer {
         if (card.isSplitCard()) {
             boolean needTranslation = !"en-US".equals(FModel.getPreferences().getPref(FPref.UI_LANGUAGE));
             final CardStateView leftState = card.getLeftSplitState();
-            final String leftText = needTranslation ? CardTranslation.getTranslatedOracle(leftState.getName()) : leftState.getOracleText();
+            final String leftText = needTranslation ? CardTranslation.getTranslatedOracle(leftState) : leftState.getOracleText();
             final CardStateView rightState = card.getRightSplitState();
-            String rightText = needTranslation ? CardTranslation.getTranslatedOracle(rightState.getName()) : rightState.getOracleText();
-            boolean isAftermath = (rightState.getKeywordKey().contains("Aftermath"));
+            String rightText = needTranslation ? CardTranslation.getTranslatedOracle(rightState) : rightState.getOracleText();
             BufferedImage leftArt = null;
             BufferedImage rightArt = null;
-            if (isAftermath) {
+            if (rightState.hasAftermath()) {
                 if (art != null) {
                     int leftWidth = Math.round(art.getWidth() * 0.61328125f);
                     leftArt = art.getSubimage(0, 0, leftWidth, art.getHeight());
@@ -247,9 +248,9 @@ public class FCardImageRenderer {
         } else if (card.isFlipCard()) {
             boolean needTranslation = !card.isToken() || !(card.getCloneOrigin() == null);
             final CardStateView state = card.getState(false);
-            final String text = card.getText(state, needTranslation ? CardTranslation.getTranslationTexts(state.getName(), "") : null);
+            final String text = card.getText(state, needTranslation ? CardTranslation.getTranslationTexts(state) : null);
             final CardStateView flipState = card.getState(true);
-            final String flipText = card.getText(flipState, needTranslation ? CardTranslation.getTranslationTexts(flipState.getName(), "") : null);
+            final String flipText = card.getText(flipState, needTranslation ? CardTranslation.getTranslationTexts(flipState) : null);
             CARD_ART_RATIO = 1.728f;
             updateAreaSizes(ratio, ratio);
             int heightAdjust = OUTER_BORDER_THICKNESS + PT_SIZE / 2;
@@ -258,19 +259,19 @@ public class FCardImageRenderer {
                 g.rotate(Math.PI);
             }
             drawFlipCardImage(g, state, text, flipState, flipText, width, height - heightAdjust, art);
-        } else if (card.isAdventureCard()) {
+        } else if (card.hasSecondaryState()) {
             boolean needTranslation = !card.isToken() || !(card.getCloneOrigin() == null);
             final CardStateView state = card.getState(false);
-            final String text = card.getText(state, needTranslation ? CardTranslation.getTranslationTexts(state.getName(), "") : null);
+            final String text = card.getText(state, needTranslation ? CardTranslation.getTranslationTexts(state) : null);
             final CardStateView advState = card.getState(true);
-            final String advText = card.getText(advState, needTranslation ? CardTranslation.getTranslationTexts(advState.getName(), "") : null);
+            final String advText = card.getText(advState, needTranslation ? CardTranslation.getTranslationTexts(advState) : null);
             CARD_ART_RATIO = 1.37f;
             updateAreaSizes(ratio, ratio);
             drawAdvCardImage(g, state, text, advState, advText, width, height, art);
         } else {
             boolean needTranslation = !card.isToken() || !(card.getCloneOrigin() == null);
             final CardStateView state = card.getState(altState);
-            final String text = card.getText(state, needTranslation ? CardTranslation.getTranslationTexts(state.getName(), "") : null);
+            final String text = card.getText(state, needTranslation ? CardTranslation.getTranslationTexts(state) : null);
             CARD_ART_RATIO = 1.37f;
             if (art != null && Math.abs((float)art.getWidth() / (float)art.getHeight() - CARD_ART_RATIO) > 0.1f) {
                 CARD_ART_RATIO = (float)art.getWidth() / (float)art.getHeight();
@@ -287,6 +288,11 @@ public class FCardImageRenderer {
         //determine colors for borders
         final List<DetailColors> borderColors = CardDetailUtil.getBorderColors(state, true);
         Color[] colors = fillColorBackground(g, borderColors, x, y, w, h, BLACK_BORDER_THICKNESS);
+        if (state.isEnchantment()) {
+            //draw fake nyx effect
+            g.drawImage(state.getColors().hasWhite() && state.getColors().countColors() == 1 ?
+                    ImageCache.getInvertedStarsImage() :  ImageCache.getStarsImage(), x, y, w, h, null);
+        }
 
         x += OUTER_BORDER_THICKNESS;
         y += OUTER_BORDER_THICKNESS;
@@ -294,7 +300,7 @@ public class FCardImageRenderer {
         int headerHeight = NAME_SIZE + 2 * HEADER_PADDING;
         int typeBoxHeight = TYPE_SIZE + 2 * TYPE_PADDING;
         int ptBoxHeight = 0;
-        if (state.isCreature() || state.isPlaneswalker() || state.isVehicle()) {
+        if (state.isCreature() || state.isPlaneswalker() | state.isBattle() || state.hasPrintedPT()) {
             //if P/T box needed, make room for it
             ptBoxHeight = headerHeight;
         }
@@ -308,9 +314,9 @@ public class FCardImageRenderer {
         int textY = typeY + typeBoxHeight;
         int ptY = textY + textBoxHeight;
 
-        // Adjust layout for Saga, Class and Dungeon cards
+        // Adjust layout for Saga, Class, Case and Dungeon cards
         boolean isSaga = state.getType().hasSubtype("Saga");
-        boolean isClass = state.getType().hasSubtype("Class");
+        boolean isClass = state.getType().hasSubtype("Class") || state.getType().hasSubtype("Case");
         boolean isDungeon = state.getType().isDungeon();
         if (isSaga || isClass || isDungeon) {
             // Move type line to the bottom
@@ -559,6 +565,10 @@ public class FCardImageRenderer {
         TYPE_SIZE = NAME_SIZE - 1;
         textX = x + ART_INSET;
 
+        // refresh if adventure has different color
+        colors = fillColorBackground(g, CardDetailUtil.getBorderColors(advState, true), 0, 0, 0, 0, BLACK_BORDER_THICKNESS);
+        textBoxColors = tintColors(Color.WHITE, colors, TEXT_BOX_TINT);
+
         //draw header containing name and mana cost
         Color[] advheaderColors = tintColors(Color.GRAY, colors, 0.6f);
         TEXT_COLOR = Color.WHITE;
@@ -678,7 +688,6 @@ public class FCardImageRenderer {
             new Rectangle(x, y, w, h), NAME_FONT, NAME_SIZE);
     }
 
-
     private static void drawArt(Graphics2D g, Color[] colors, int x, int y, int w, int h, BufferedImage art) {
         if (art != null) {
             int artWidth = art.getWidth();
@@ -694,7 +703,8 @@ public class FCardImageRenderer {
             }
         } else {
             fillColorBackground(g, colors, x, y, w, h);
-            SkinIcon icon = FSkin.getIcon(FSkinProp.ICO_LOGO);
+            //Card Art Logo
+            SkinIcon icon = FSkin.getIcon(FSkinProp.ICO_CARDART);
             float artWidth = (float)icon.getSizeForPaint(g).getWidth();
             float artHeight = (float)icon.getSizeForPaint(g).getHeight();
             if (artWidth / artHeight >= (float)w / (float)h) {
@@ -744,8 +754,11 @@ public class FCardImageRenderer {
         //draw type
         x += padding;
         w -= padding;
-        String typeLine = CardDetailUtil.formatCardType(state, true).replace(" - ", " — ");
-        drawVerticallyCenteredString(g, typeLine, new Rectangle(x, y, w, h), TYPE_FONT, TYPE_SIZE);
+        // check for shared type line
+        if (!state.getType().hasStringType("Room") || state.getState() != CardStateName.RightSplit) {
+            String typeLine = CardDetailUtil.formatCardType(state, true).replace(" - ", " — ");
+            drawVerticallyCenteredString(g, typeLine, new Rectangle(x, y, w, h), TYPE_FONT, TYPE_SIZE);
+        }
     }
 
     /**
@@ -833,11 +846,25 @@ public class FCardImageRenderer {
                 pieces.add(String.valueOf(state.getToughness()));
             }
         }
+        else if (state.isSpaceCraft()) {
+            Color [] scColor = { Color.BLACK };
+            colors = scColor;
+            TEXT_COLOR = Color.WHITE;
+            pieces.add(String.valueOf(state.getPower()));
+            pieces.add("/");
+            pieces.add(String.valueOf(state.getToughness()));
+        }
         else if (state.isPlaneswalker()) {
             Color [] pwColor = { Color.BLACK };
             colors = pwColor;
             TEXT_COLOR = Color.WHITE;
             pieces.add(String.valueOf(state.getLoyalty()));
+        }
+        else if (state.isBattle()) {
+            Color [] pwColor = { Color.BLACK };
+            colors = pwColor;
+            TEXT_COLOR = Color.WHITE;
+            pieces.add(String.valueOf(state.getDefense()));
         }
         else if (state.isVehicle()) {
             Color [] vhColor = { new Color(128, 96, 64) };
@@ -865,7 +892,7 @@ public class FCardImageRenderer {
         int arcWidth = h / 3;
         fillRoundColorBackground(g, colors, x, y, w, h, arcWidth, h);
         g.setStroke(new BasicStroke(BOX_LINE_THICKNESS));
-        g.setColor(state.isPlaneswalker() ? Color.WHITE : Color.BLACK);
+        g.setColor(state.isPlaneswalker() || state.isBattle() ? Color.WHITE : Color.BLACK);
         g.drawRoundRect(x, y, w, h, arcWidth, h);
 
         x += (PT_BOX_WIDTH - totalPieceWidth) / 2;
@@ -986,10 +1013,7 @@ public class FCardImageRenderer {
                     }
                     pieces.add(new TextPiece(subtext.substring(parsed, sbMatcher.start()), isReminder));
                 }
-                String symbol = sbMatcher.group(1) != null ? sbMatcher.group(1) :
-                    // switch position of "P" and mana color for phyrexian mana symbol.
-                    "P".equals(sbMatcher.group(3)) ? sbMatcher.group(3) + sbMatcher.group(2) :
-                    sbMatcher.group(2) + sbMatcher.group(3);
+                String symbol = sbMatcher.group(1) != null ? sbMatcher.group(1) : sbMatcher.group(2) + sbMatcher.group(3);
                 symbols.add(symbol);
                 parsed = sbMatcher.end();
             }

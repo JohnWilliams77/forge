@@ -2,7 +2,6 @@ package forge.game;
 
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map.Entry;
 
 import com.google.common.collect.Iterables;
@@ -10,16 +9,14 @@ import com.google.common.eventbus.Subscribe;
 
 import forge.LobbyPlayer;
 import forge.game.card.Card;
+import forge.game.card.CounterEnumType;
 import forge.game.event.*;
 import forge.game.event.GameEventCardDamaged.DamageType;
 import forge.game.player.Player;
 import forge.game.player.RegisteredPlayer;
 import forge.game.spellability.TargetChoices;
 import forge.game.zone.ZoneType;
-import forge.util.CardTranslation;
-import forge.util.Lang;
-import forge.util.Localizer;
-import forge.util.TextUtil;
+import forge.util.*;
 import forge.util.maps.MapOfLists;
 
 public class GameLogFormatter extends IGameEventVisitor.Base<GameLogEntry> {
@@ -92,11 +89,7 @@ public class GameLogFormatter extends IGameEventVisitor.Base<GameLogEntry> {
         if (event.sa.getTargetRestrictions() != null) {
             StringBuilder sb = new StringBuilder();
 
-            List<TargetChoices> targets = event.sa.getAllTargetChoices();
-            // Include the TargetChoices from the stack instance, since the real target choices
-            // are on that object at this point (see SpellAbilityStackInstance constructor).
-            targets.add(event.si.getTargetChoices());
-            for (TargetChoices ch : targets) {
+            for (TargetChoices ch : event.sa.getAllTargetChoices()) {
                 if (null != ch) {
                     sb.append(ch);
                 }
@@ -143,13 +136,13 @@ public class GameLogFormatter extends IGameEventVisitor.Base<GameLogEntry> {
         for (final GameOutcome game : gamesPlayed) {
             RegisteredPlayer player = game.getWinningPlayer();
 
-            int amount = winCount.containsKey(player) ? winCount.get(player) : 0;
+            int amount = winCount.getOrDefault(player, 0);
             winCount.put(player, amount + 1);
         }
 
         final StringBuilder sb = new StringBuilder();
         for (Entry<RegisteredPlayer, String> entry : players.entrySet()) {
-            int amount = winCount.containsKey(entry.getKey()) ? winCount.get(entry.getKey()) : 0;
+            int amount = winCount.getOrDefault(entry.getKey(), 0);
 
             sb.append(entry.getValue()).append(": ").append(amount).append(" ");
         }
@@ -225,6 +218,20 @@ public class GameLogFormatter extends IGameEventVisitor.Base<GameLogEntry> {
     }
 
     @Override
+    public GameLogEntry visit(GameEventPlayerRadiation ev) {
+        String message;
+        final int change = ev.change;
+        String radCtr = CounterEnumType.RAD.getName().toLowerCase() + " " +
+                Localizer.getInstance().getMessage("lblCounter").toLowerCase();
+        if (change >= 0) message = localizer.getMessage("lblLogPlayerRadiation",
+                ev.receiver.toString(), Lang.nounWithNumeralExceptOne(String.valueOf(change), radCtr),
+                ev.source.toString());
+        else message = localizer.getMessage("lblLogPlayerRadRemove",
+                ev.receiver.toString(), Lang.nounWithNumeralExceptOne(String.valueOf(Math.abs(change)), radCtr));
+        return new GameLogEntry(GameLogEntryType.DAMAGE, message);
+    }
+
+    @Override
     public GameLogEntry visit(final GameEventAttackersDeclared ev) {
         final StringBuilder sb = new StringBuilder();
 
@@ -246,7 +253,6 @@ public class GameLogFormatter extends IGameEventVisitor.Base<GameLogEntry> {
         return new GameLogEntry(GameLogEntryType.COMBAT, sb.toString());
     }
 
-
     @Override
     public GameLogEntry visit(final GameEventBlockersDeclared ev) {
         final StringBuilder sb = new StringBuilder();
@@ -267,8 +273,7 @@ public class GameLogFormatter extends IGameEventVisitor.Base<GameLogEntry> {
             }
 
             String controllerName;
-            if (defender instanceof Card) {
-                Card c = ((Card)defender);
+            if (defender instanceof Card c) {
                 controllerName = c.isBattle() ? c.getProtectingPlayer().getName() : c.getController().getName();
             } else {
                 controllerName = defender.getName();
@@ -297,6 +302,21 @@ public class GameLogFormatter extends IGameEventVisitor.Base<GameLogEntry> {
         return new GameLogEntry(GameLogEntryType.MULLIGAN, message);
     }
 
+    @Override
+    public GameLogEntry visit(GameEventCardForetold ev) {
+        return new GameLogEntry(GameLogEntryType.STACK_RESOLVE, ev.toString());
+    }
+
+    @Override
+    public GameLogEntry visit(GameEventCardPlotted ev) {
+        return new GameLogEntry(GameLogEntryType.STACK_RESOLVE, ev.toString());
+    }
+
+    @Override
+    public GameLogEntry visit(GameEventDoorChanged ev) {
+        return new GameLogEntry(GameLogEntryType.STACK_RESOLVE, ev.toString());
+    }
+
     @Subscribe
     public void recieve(GameEvent ev) {
         GameLogEntry le = ev.visit(this);
@@ -304,4 +324,4 @@ public class GameLogFormatter extends IGameEventVisitor.Base<GameLogEntry> {
             log.add(le);
         }
     }
-} // end class GameLog
+}

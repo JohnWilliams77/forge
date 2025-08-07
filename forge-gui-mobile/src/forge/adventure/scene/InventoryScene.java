@@ -14,10 +14,7 @@ import forge.adventure.data.ItemData;
 import forge.adventure.stage.ConsoleCommandInterpreter;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.MapStage;
-import forge.adventure.util.Config;
-import forge.adventure.util.Controls;
-import forge.adventure.util.Current;
-import forge.adventure.util.Paths;
+import forge.adventure.util.*;
 import forge.deck.Deck;
 
 import java.util.HashMap;
@@ -76,7 +73,7 @@ public class InventoryScene extends UIScene {
                                 }
                             }
                             String item = Current.player().itemInSlot(slotName);
-                            if (item != null && !item.equals("")) {
+                            if (item != null && !item.isEmpty()) {
                                 Button changeButton = null;
                                 for (Button invButton : inventoryButtons) {
                                     if (itemLocation.get(invButton) != null && itemLocation.get(invButton).equals(item)) {
@@ -160,7 +157,21 @@ public class InventoryScene extends UIScene {
         if (data == null) return;
         Current.player().addShards(-data.shardsNeeded);
         done();
-        ConsoleCommandInterpreter.getInstance().command(data.commandOnUse);
+        if (data.commandOnUse != null && !data.commandOnUse.isEmpty())
+            ConsoleCommandInterpreter.getInstance().command(data.commandOnUse);
+        if (data.dialogOnUse != null && data.dialogOnUse.text != null && !data.dialogOnUse.text.isEmpty()) {
+            MapDialog dialog = new MapDialog(data.dialogOnUse, MapStage.getInstance(),0,null);
+            MapStage.getInstance().showDialog();
+            dialog.activate();
+            ChangeListener listen = new ChangeListener() {
+                @Override
+                public void changed(ChangeEvent changeEvent, Actor actor) {
+                    AdventureQuestController.instance().showQuestDialogs(MapStage.getInstance());
+                }
+            };
+            dialog.addDialogCompleteListener(listen);
+        }
+        AdventureQuestController.instance().updateItemUsed(data);
     }
 
     private void openBooster() {
@@ -169,7 +180,7 @@ public class InventoryScene extends UIScene {
         Deck data = (deckLocation.get(selected));
         if (data == null) return;
 
-        done();
+        //done();
         setSelected(null);
         RewardScene.instance().loadRewards(data, RewardScene.Type.Loot, null, data.getTags().contains("noSell"));
         Forge.switchScene(RewardScene.instance());
@@ -195,22 +206,17 @@ public class InventoryScene extends UIScene {
             Deck data = deckLocation.get(selected);
             if (data == null)
                 return;
-            if (openDialog == null) {
-                openDialog = createGenericDialog("", null, Forge.getLocalizer().getMessage("lblYes"),
-                        Forge.getLocalizer().getMessage("lblNo"), () -> {
-                            this.openBooster();
-                            removeDialog();
-                        }, this::removeDialog);
-                openDialog.getContentTable().add(Controls.newTextraLabel("Open Booster Pack?"));
-            }
-            showDialog(openDialog);
+            this.openBooster();
         }
     }
 
+    public void clearItemDescription() {
+        itemDescription.setText("");
+    }
     private void setSelected(Button actor) {
         selected = actor;
         if (actor == null) {
-            itemDescription.setText("");
+            clearItemDescription();
             deleteButton.setDisabled(true);
             equipButton.setDisabled(true);
             useButton.setDisabled(true);
@@ -235,7 +241,7 @@ public class InventoryScene extends UIScene {
             if (Current.player().getShards() < data.shardsNeeded)
                 useButton.setDisabled(true);
 
-            if (data.equipmentSlot == null || data.equipmentSlot.equals("")) {
+            if (data.equipmentSlot == null || data.equipmentSlot.isEmpty() || data.isCracked) {
                 equipButton.setDisabled(true);
             } else {
                 equipButton.setDisabled(false);
@@ -250,7 +256,8 @@ public class InventoryScene extends UIScene {
                     button.layout();
                 }
             }
-            itemDescription.setText(data.name + "\n[%98]" + data.getDescription());
+            String status = data.isCracked ? " (" + Forge.getLocalizer().getMessage("lblCracked") + ")" : "";
+            itemDescription.setText(data.name + status + "\n[%98]" + data.getDescription());
         }
         else if (deckLocation.containsKey(actor)){
             Deck data = (deckLocation.get(actor));
@@ -262,7 +269,7 @@ public class InventoryScene extends UIScene {
             useButton.layout();
             equipButton.setDisabled(true);
 
-            itemDescription.setText("Card Pack - " + data.getName() + "\n[%98]" + (data.getComment() == null?"":data.getComment()+" - ") + data.getAllCardsInASinglePool().countAll() + " cards");
+            itemDescription.setText(data.getName() + "\n[%98]" + (data.getComment() == null?"":data.getComment()+" - ") + data.getAllCardsInASinglePool().countAll() + " cards");
         }
 
 
@@ -279,12 +286,44 @@ public class InventoryScene extends UIScene {
         clearSelectable();
         inventoryButtons.clear();
         inventory.clear();
-        Current.player().getItems().sort();
 
         int itemSlotsUsed = 0;
+        // Turn item strings into actual ItemData
+        // THen sort but these by slot type and name
 
+        Array<ItemData> items = new Array<>();
         for (int i = 0; i < Current.player().getItems().size; i++) {
+            String name = Current.player().getItems().get(i);
+            ItemData item = ItemData.getItem(name);
+            if (item == null) {
+                System.err.print("Can not find item name " + name + "\n");
+                continue;
+            }
+            if (item.sprite() == null) {
+                System.err.print("Can not find sprite name " + item.iconName + "\n");
+                continue;
+            }
 
+            items.add(item);
+        }
+        items.sort((o1, o2) -> {
+            if (o1.equipmentSlot == null && o2.equipmentSlot == null) {
+                return o1.name.compareTo(o2.name);
+            } else if (o1.equipmentSlot == null) {
+                return 1;
+            } else if (o2.equipmentSlot == null) {
+                return -1;
+            } else {
+                int slotCompare = o1.equipmentSlot.compareTo(o2.equipmentSlot);
+                if (slotCompare != 0) {
+                    return slotCompare;
+                }
+                return o1.name.compareTo(o2.name);
+            }
+        });
+
+
+        for (int i = 0; i < items.size; i++) {
             if (i % columns == 0)
                 inventory.row();
             Button newActor = createInventorySlot();
@@ -297,20 +336,13 @@ public class InventoryScene extends UIScene {
                 }
             });
             inventoryButtons.add(newActor);
-            ItemData item = ItemData.getItem(Current.player().getItems().get(i));
-            if (item == null) {
-                System.err.print("Can not find item name " + Current.player().getItems().get(i) + "\n");
-                continue;
-            }
-            if (item.sprite() == null) {
-                System.err.print("Can not find sprite name " + item.iconName + "\n");
-                continue;
-            }
+
+            ItemData item = items.get(i);
             Image img = new Image(item.sprite());
             img.setX((newActor.getWidth() - img.getWidth()) / 2);
             img.setY((newActor.getHeight() - img.getHeight()) / 2);
             newActor.addActor(img);
-            itemLocation.put(newActor, Current.player().getItems().get(i));
+            itemLocation.put(newActor, item.name);
             if (Current.player().getEquippedItems().contains(item.name)) {
                 Image overlay = new Image(equipOverlay);
                 overlay.setX((newActor.getWidth() - img.getWidth()) / 2);
@@ -369,7 +401,7 @@ public class InventoryScene extends UIScene {
             if (slot.getValue().getChildren().size >= 2)
                 slot.getValue().removeActorAt(1, false);
             String equippedItem = Current.player().itemInSlot(slot.getKey());
-            if (equippedItem == null || equippedItem.equals(""))
+            if (equippedItem == null || equippedItem.isEmpty())
                 continue;
             ItemData item = ItemData.getItem(equippedItem);
             if (item != null) {

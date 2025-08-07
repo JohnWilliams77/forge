@@ -17,8 +17,6 @@
  */
 package forge.gamemodes.match.input;
 
-import java.util.List;
-
 import forge.game.Game;
 import forge.game.card.Card;
 import forge.game.card.CardView;
@@ -33,6 +31,8 @@ import forge.model.FModel;
 import forge.player.PlayerControllerHuman;
 import forge.util.ITriggerEvent;
 import forge.util.Localizer;
+
+import java.util.List;
 
 /**
  * <p>
@@ -166,6 +166,24 @@ public abstract class InputBase implements java.io.Serializable, Input {
                 sb.append("\n").append(localizer.getMessage("lblStormCount")).append(": ").append(stormCount);
             }
         }
+
+        if (controller.macros() != null) {
+            boolean isRecording = controller.macros().isRecording();
+            String pbText = controller.macros().playbackText();
+            if (pbText != null) {
+                sb.append("\n");
+                if (isRecording) {
+                    sb.append("Macro Recording -- ");
+                } else {
+                    sb.append("Macro Playback -- ");
+                }
+
+                sb.append(pbText);
+            } else if (isRecording) {
+                sb.append("\n").append("Macro Recording -- ");
+            }
+        }
+
         return sb.toString();
     }
 }

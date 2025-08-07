@@ -30,14 +30,16 @@ import forge.localinstance.skin.FSkinProp;
 import java.util.HashMap;
 import java.util.Map;
 
+import static forge.assets.FSkin.getDefaultSkinFile;
+
 public class Assets implements Disposable {
     private MemoryTrackingAssetManager manager;
     private HashMap<Integer, FSkinFont> fonts;
     private HashMap<String, FImageComplex> cardArtCache;
     private HashMap<String, FImage> avatarImages;
-    private HashMap<String, FSkinImage> manaImages;
-    private HashMap<String, FSkinImage> symbolLookup;
-    private HashMap<FSkinProp, FSkinImage> images;
+    private HashMap<String, FSkinImageInterface> manaImages;
+    private HashMap<String, FSkinImageInterface> symbolLookup;
+    private HashMap<FSkinProp, FSkinImageInterface> images;
     private HashMap<Integer, TextureRegion> avatars;
     private HashMap<Integer, TextureRegion> sleeves;
     private HashMap<Integer, TextureRegion> cracks;
@@ -45,13 +47,13 @@ public class Assets implements Disposable {
     private HashMap<Integer, TextureRegion> deckbox;
     private HashMap<Integer, TextureRegion> cursor;
     private ObjectMap<Integer, BitmapFont> counterFonts;
-    private ObjectMap<String, Texture> generatedCards;
     private ObjectMap<String, Texture> fallback_skins;
     private ObjectMap<String, Texture> tmxMap;
     private Texture defaultImage, dummy;
     private TextureParameter textureParameter;
     private ObjectMap<String, Font> textrafonts;
-    private int cGen = 0, cGenVal = 0, cFB = 0, cFBVal = 0, cTM = 0, cTMVal = 0, cSF = 0, cSFVal = 0, cCF = 0, cCFVal = 0, aDF = 0, cDFVal = 0;
+    private int cFB = 0, cFBVal = 0, cTM = 0, cTMVal = 0, cSF = 0, cSFVal = 0, cCF = 0, cCFVal = 0;
+    private Texture holofoil;
 
     public Assets() {
         String titleFilename = Forge.isLandscapeMode() ? "title_bg_lq.png" : "title_bg_lq_portrait.png";
@@ -81,46 +83,63 @@ public class Assets implements Disposable {
                     bitmapFont.dispose();
                 counterFonts.clear();
             }
-            if (generatedCards != null) {
-                for (Texture texture : generatedCards.values())
-                    texture.dispose();
-                generatedCards.clear();
-            }
+        } catch (Exception ignored) {}
+        try {
             if (fallback_skins != null) {
                 for (Texture texture : fallback_skins.values())
                     texture.dispose();
                 fallback_skins.clear();
             }
+        } catch (Exception ignored) {}
+        try {
             if (tmxMap != null) {
                 for (Texture texture : tmxMap.values())
                     texture.dispose();
                 tmxMap.clear();
             }
+        } catch (Exception ignored) {}
+        try {
             if (defaultImage != null)
                 defaultImage.dispose();
+        } catch (Exception ignored) {}
+        try {
             if (dummy != null)
                 dummy.dispose();
+        } catch (Exception ignored) {}
+        try {
             if (textrafonts != null) {
                 for (Font f : textrafonts.values())
                     f.dispose();
             }
+        } catch (Exception ignored) {}
+        if (cardArtCache != null)
             cardArtCache.clear();
+        if (avatarImages != null)
             avatarImages.clear();
+        if (manaImages != null)
             manaImages.clear();
+        if (symbolLookup != null)
             symbolLookup.clear();
+        if (images != null)
             images.clear();
+        if (avatars != null)
             avatars.clear();
+        if (sleeves != null)
             sleeves.clear();
+        if (cracks != null)
             cracks.clear();
+        if (borders != null)
             borders.clear();
+        if (deckbox != null)
             deckbox.clear();
+        if (cursor != null)
             cursor.clear();
+        if (fonts != null)
             fonts.clear();
+        try {
             if (manager != null)
                 manager.dispose();
-        } catch (Exception e) {
-            //e.printStackTrace();
-        }
+        } catch (Exception ignored) {}
     }
 
     public MemoryTrackingAssetManager manager() {
@@ -147,19 +166,19 @@ public class Assets implements Disposable {
         return avatarImages;
     }
 
-    public HashMap<String, FSkinImage> manaImages() {
+    public HashMap<String, FSkinImageInterface> manaImages() {
         if (manaImages == null)
             manaImages = new HashMap<>();
         return manaImages;
     }
 
-    public HashMap<String, FSkinImage> symbolLookup() {
+    public HashMap<String, FSkinImageInterface> symbolLookup() {
         if (symbolLookup == null)
             symbolLookup = new HashMap<>();
         return symbolLookup;
     }
 
-    public HashMap<FSkinProp, FSkinImage> images() {
+    public HashMap<FSkinProp, FSkinImageInterface> images() {
         if (images == null)
             images = new HashMap<>();
         return images;
@@ -205,12 +224,6 @@ public class Assets implements Disposable {
         if (counterFonts == null)
             counterFonts = new ObjectMap<>();
         return counterFonts;
-    }
-
-    public ObjectMap<String, Texture> generatedCards() {
-        if (generatedCards == null)
-            generatedCards = new ObjectMap<>();
-        return generatedCards;
     }
 
     public ObjectMap<String, Texture> fallback_skins() {
@@ -344,6 +357,12 @@ public class Assets implements Disposable {
         return dummy;
     }
 
+    public Texture getHolofoil() {
+        if (holofoil == null) {
+            holofoil = getTexture(getDefaultSkinFile("holofoil.png"));
+        }
+        return holofoil;
+    }
     public Font getTextraFont(BitmapFont bitmapFont, TextureAtlas item_atlas, TextureAtlas pixelmana_atlas) {
         if (textrafonts == null)
             textrafonts = new ObjectMap<>();
@@ -381,6 +400,17 @@ public class Assets implements Disposable {
             textrafonts.put(name, font);
         }
         return textrafonts.get(name);
+    }
+
+    public Font getGenericHeaderFont(BitmapFont bitmapFont) {
+        if (textrafonts == null)
+            textrafonts = new ObjectMap<>();
+        if (!textrafonts.containsKey("GenericHeaderFont")) {
+            Font font = new Font(bitmapFont, 0f, -0.5f, 0f, -2.5f);
+            font.integerPosition = false;
+            textrafonts.put("GenericHeaderFont", font);
+        }
+        return textrafonts.get("GenericHeaderFont");
     }
 
     public Music getMusic(FileHandle file) {
@@ -423,7 +453,7 @@ public class Assets implements Disposable {
         }
 
         @SuppressWarnings("unchecked")
-        private int calculateTextureSize(AssetManager assetManager, String fileName, Class type) {
+        private int calculateTextureSize(AssetManager assetManager, String fileName, Class<?> type) {
             if (!Forge.showFPS)
                 return 0;
             Texture texture = (Texture) assetManager.get(fileName, type);
@@ -431,24 +461,10 @@ public class Assets implements Disposable {
             int textureSize = textureData.getWidth() * textureData.getHeight();
             if (Forge.isTextureFilteringEnabled())
                 textureSize = textureSize + (textureSize / 3);
-            switch (textureData.getFormat()) {
-                case RGB565:
-                    textureSize *= 2;
-                    break;
-                case RGB888:
-                    textureSize *= 3;
-                    break;
-                case RGBA4444:
-                    textureSize *= 2;
-                    break;
-                case RGBA8888:
-                    textureSize *= 4;
-                    break;
-            }
-            memoryPerFile.put(fileName, textureSize);
+            memoryPerFile.put(fileName, calcTextureDataSize(textureSize, textureData.getFormat()));
 
             return memoryPerFile.values().stream().mapToInt(Integer::intValue).sum() + calcFonts() + calcCounterFonts()
-                    + calculateObjectMaps(generatedCards()) + calculateObjectMaps(fallback_skins()) + calculateObjectMaps(tmxMap());
+                + calculateObjectMaps(fallback_skins()) + calculateObjectMaps(tmxMap());
         }
 
         @SuppressWarnings("unchecked")
@@ -457,12 +473,6 @@ public class Assets implements Disposable {
                 return 0;
             if (objectMap == null || objectMap.isEmpty())
                 return 0;
-            if (objectMap == generatedCards) {
-                if (cGen == objectMap.size)
-                    return cGenVal;
-                else
-                    cGen = objectMap.size;
-            }
             if (objectMap == tmxMap) {
                 if (cTM == objectMap.size)
                     return cTMVal;
@@ -481,24 +491,8 @@ public class Assets implements Disposable {
                 int textureSize = textureData.getWidth() * textureData.getHeight();
                 if (Forge.isTextureFilteringEnabled())
                     textureSize = textureSize + (textureSize / 3);
-                switch (textureData.getFormat()) {
-                    case RGB565:
-                        textureSize *= 2;
-                        break;
-                    case RGB888:
-                        textureSize *= 3;
-                        break;
-                    case RGBA4444:
-                        textureSize *= 2;
-                        break;
-                    case RGBA8888:
-                        textureSize *= 4;
-                        break;
-                }
-                sum += textureSize;
+                sum += calcTextureDataSize(textureSize, textureData.getFormat());
             }
-            if (objectMap == generatedCards)
-                cGenVal = sum;
             if (objectMap == tmxMap)
                 cTMVal = sum;
             if (objectMap == fallback_skins)
@@ -548,6 +542,20 @@ public class Assets implements Disposable {
             return val;
         }
 
+        private int calcTextureDataSize(int textureSize, Pixmap.Format format) {
+            switch (format) {
+                case RGB565:
+                case RGBA4444:
+                    return textureSize * 2;
+                case RGB888:
+                    return textureSize * 3;
+                case RGBA8888:
+                    return textureSize * 4;
+                default: //assume plain RGB888
+                    return textureSize * 3;
+            }
+        }
+
         @SuppressWarnings("unchecked")
         @Override
         public synchronized <T> void load(String fileName, Class<T> type, AssetLoaderParameters<T> parameter) {
@@ -572,10 +580,8 @@ public class Assets implements Disposable {
         public synchronized void unload(String fileName) {
             if (isLoaded(fileName))
                 super.unload(fileName);
-            if (memoryPerFile.containsKey(fileName)) {
-                memoryPerFile.remove(fileName);
-                cardArtCache().clear();
-            }
+            memoryPerFile.remove(fileName);
+            cardArtCache().clear();
         }
 
         @Override

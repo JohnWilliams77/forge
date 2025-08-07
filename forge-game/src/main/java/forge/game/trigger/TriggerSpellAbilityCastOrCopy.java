@@ -24,7 +24,6 @@ import java.util.Set;
 import com.google.common.collect.Sets;
 
 import forge.card.ColorSet;
-import forge.game.Game;
 import forge.game.GameEntity;
 import forge.game.GameObject;
 import forge.game.ability.AbilityKey;
@@ -32,13 +31,10 @@ import forge.game.card.Card;
 import forge.game.card.CardCollection;
 import forge.game.card.CardLists;
 import forge.game.card.CardUtil;
-import forge.game.cost.Cost;
 import forge.game.mana.Mana;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
-import forge.game.spellability.SpellAbilityStackInstance;
 import forge.game.spellability.TargetChoices;
-import forge.game.zone.ZoneType;
 import forge.util.Expressions;
 import forge.util.Localizer;
 import forge.util.collect.FCollection;
@@ -70,7 +66,8 @@ public class TriggerSpellAbilityCastOrCopy extends Trigger {
     }
 
     /** {@inheritDoc}
-     * @param runParams*/
+     * @param runParams
+     **/
     @Override
     public final boolean performTest(final Map<AbilityKey, Object> runParams) {
         final SpellAbility spellAbility = (SpellAbility) runParams.get(AbilityKey.SpellAbility);
@@ -79,22 +76,9 @@ public class TriggerSpellAbilityCastOrCopy extends Trigger {
             return false;
         }
         final Card cast = spellAbility.getHostCard();
-        final Game game = cast.getGame();
-        final SpellAbilityStackInstance si = game.getStack().getInstanceMatchingSpellAbilityID(spellAbility);
-
-        if (!matchesValidParam("ValidPlayer", runParams.get(AbilityKey.Player))) {
-            return false;
-        }
 
         if (hasParam("ValidActivatingPlayer")) {
-            Player activator;
-            if (spellAbility.isManaAbility()) {
-                activator = (Player) runParams.get(AbilityKey.Activator);
-            } else if (si == null) {
-                return false;
-            } else {
-                activator = si.getSpellAbility().getActivatingPlayer();
-            }
+            Player activator = (Player) runParams.get(AbilityKey.Activator);
 
             if (!matchesValidParam("ValidActivatingPlayer", activator)) {
                 return false;
@@ -110,6 +94,27 @@ public class TriggerSpellAbilityCastOrCopy extends Trigger {
                     return false;
                 }
             }
+            if (hasParam("ActivatorThisTurnCastEach")) {
+                final String compare = getParam("ActivatorThisTurnCastEach");
+                final String valid = getParamOrDefault("ValidCard", "Card");
+                boolean found = false;
+                int right = Integer.parseInt(compare.substring(2));
+                for (String v : valid.split(",")) {
+                    if (!cast.isValid(v, getHostCard().getController(), getHostCard(), this)) {
+                        continue;
+                    }
+                    List<Card> thisTurnCast = CardUtil.getThisTurnCast(v, getHostCard(), this, getHostCard().getController());
+                    thisTurnCast = CardLists.filterControlledByAsList(thisTurnCast, activator);
+                    int left = thisTurnCast.size();
+                    if (Expressions.compare(left, compare, right)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    return false;
+                }
+            }
         }
         if (!matchesValidParam("ValidCard", cast)) {
             return false;
@@ -117,17 +122,17 @@ public class TriggerSpellAbilityCastOrCopy extends Trigger {
         if (!matchesValidParam("ValidSA", spellAbility)) {
             return false;
         }
+        if (!matchesValidParam("ValidSAonCard", spellAbility, cast)) {
+            return false;
+        }
 
         if (hasParam("TargetsValid")) {
             SpellAbility sa = spellAbility;
-            if (si != null) {
-                sa = si.getSpellAbility();
-            }
 
             boolean validTgtFound = false;
             while (sa != null && !validTgtFound) {
                 for (final GameEntity ge : sa.getTargets().getTargetEntities()) {
-                    if (matchesValid(ge, getParam("TargetsValid").split(","))) {
+                    if (matchesValidParam("TargetsValid", ge)) {
                         validTgtFound = true;
                         break;
                     }
@@ -164,20 +169,6 @@ public class TriggerSpellAbilityCastOrCopy extends Trigger {
             }
         }
 
-        if (hasParam("NonTapCost")) {
-            final Cost cost = (Cost) (runParams.get(AbilityKey.Cost));
-            if (cost.hasTapCost()) {
-                return false;
-            }
-        }
-
-        if (hasParam("HasTapCost")) {
-            final Cost cost = (Cost) (runParams.get(AbilityKey.Cost));
-            if (!cost.hasTapCost()) {
-                return false;
-            }
-        }
-
         if (hasParam("HasXManaCost")) {
             final int numX;
             if (spellAbility.isActivatedAbility()) {
@@ -186,18 +177,6 @@ public class TriggerSpellAbilityCastOrCopy extends Trigger {
                 numX = cast.getManaCost().countX();
             }
             if (numX == 0) {
-                return false;
-            }
-        }
-
-        if (hasParam("Outlast")) {
-            if (!spellAbility.isOutlast()) {
-                return false;
-            }
-        }
-
-        if (hasParam("EternalizeOrEmbalm")) {
-            if (!spellAbility.hasParam("Eternalize") && !spellAbility.hasParam("Embalm")) {
                 return false;
             }
         }
@@ -212,23 +191,6 @@ public class TriggerSpellAbilityCastOrCopy extends Trigger {
                 }
             }
             if (targets.size() != 1) {
-                return false;
-            }
-        }
-
-        if (hasParam("SharesNameWithActivatorsZone")) {
-            String zones = getParam("SharesNameWithActivatorsZone");
-            if (si == null) {
-                return false;
-            }
-            boolean sameNameFound = false;
-            for (Card c: si.getSpellAbility().getActivatingPlayer().getCardsIn(ZoneType.listValueOf(zones))) {
-                if (cast.getName().equals(c.getName())) {
-                    sameNameFound = true;
-                    break;
-                }
-            }
-            if (!sameNameFound) {
                 return false;
             }
         }
@@ -256,19 +218,23 @@ public class TriggerSpellAbilityCastOrCopy extends Trigger {
                 return false;
             }
         }
+
+        if (getSpawningAbility() != null && getSpawningAbility().hasParam("TriggersWhenSpent")) {
+            if (!getTriggerRemembered().contains(spellAbility)) {
+                return false;
+            }
+        }
+
         return true;
     }
 
     /** {@inheritDoc} */
     @Override
     public final void setTriggeringObjects(final SpellAbility sa, Map<AbilityKey, Object> runParams) {
-        final SpellAbility castSA = (SpellAbility) runParams.get(AbilityKey.SpellAbility);
-        final SpellAbilityStackInstance si = sa.getHostCard().getGame().getStack().getInstanceMatchingSpellAbilityID(castSA);
-        final SpellAbility saForTargets = si != null ? si.getSpellAbility() : castSA;
-        sa.setTriggeringObject(AbilityKey.Card, castSA.getHostCard());
-        sa.setTriggeringObject(AbilityKey.SpellAbility, castSA);
-        sa.setTriggeringObject(AbilityKey.StackInstance, si);
-        final List<TargetChoices> allTgts = saForTargets.getAllTargetChoices();
+        final SpellAbility cause = (SpellAbility) runParams.get(AbilityKey.SpellAbility);
+        sa.setTriggeringObject(AbilityKey.Card, cause.getHostCard());
+        sa.setTriggeringObject(AbilityKey.SpellAbility, cause);
+        final List<TargetChoices> allTgts = cause.getAllTargetChoices();
         if (!allTgts.isEmpty()) {
             final FCollection<GameEntity> saTargets = new FCollection<>();
             for (TargetChoices tc : allTgts) {
@@ -276,11 +242,10 @@ public class TriggerSpellAbilityCastOrCopy extends Trigger {
             }
             sa.setTriggeringObject(AbilityKey.SpellAbilityTargets, saTargets);
         }
-        sa.setTriggeringObject(AbilityKey.LifeAmount, castSA.getAmountLifePaid());
+        sa.setTriggeringObject(AbilityKey.LifeAmount, cause.getAmountLifePaid());
         sa.setTriggeringObjectsFrom(
                 runParams,
                 AbilityKey.CardLKI,
-                AbilityKey.Player,
                 AbilityKey.Activator,
                 AbilityKey.CurrentStormCount,
                 AbilityKey.CurrentCastSpells

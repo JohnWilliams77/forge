@@ -1,14 +1,21 @@
 package forge.game.ability.effects;
 
-import java.util.List;
+import com.google.common.collect.Maps;
 
+import forge.game.ability.AbilityKey;
+import forge.game.ability.AbilityUtils;
 import forge.game.ability.SpellAbilityEffect;
 import forge.game.card.Card;
+import forge.game.card.CardCollection;
+import forge.game.player.Player;
 import forge.game.player.PlayerController;
 import forge.game.spellability.SpellAbility;
+import forge.game.trigger.TriggerType;
 import forge.util.CardTranslation;
 import forge.util.Lang;
 import forge.util.Localizer;
+
+import java.util.Map;
 
 public class TapOrUntapEffect extends SpellAbilityEffect {
 
@@ -29,10 +36,15 @@ public class TapOrUntapEffect extends SpellAbilityEffect {
 
     @Override
     public void resolve(SpellAbility sa) {
-        final List<Card> tgtCards = getTargetCards(sa);
-        PlayerController pc = sa.getActivatingPlayer().getController();
+        Player tapper = sa.getActivatingPlayer();
+        if (sa.hasParam("Tapper")) {
+            tapper = AbilityUtils.getDefinedPlayers(sa.getHostCard(), sa.getParam("Tapper"), sa).getFirst();
+        }
+        PlayerController pc = tapper.getController();
 
-        for (final Card tgtC : tgtCards) {
+        CardCollection tapped = new CardCollection();
+        final Map<Player, CardCollection> untapMap = Maps.newHashMap();
+        for (final Card tgtC : getTargetCards(sa)) {
             if (!tgtC.isInPlay()) {
                 continue;
             }
@@ -40,16 +52,32 @@ public class TapOrUntapEffect extends SpellAbilityEffect {
                 continue;
             }
 
+            // check if the object is still in game or if it was moved
+            Card gameCard = tapper.getGame().getCardState(tgtC, null);
+            // gameCard is LKI in that case, the card is not in game anymore
+            // or the timestamp did change
+            // this should check Self too
+            if (gameCard == null || !tgtC.equalsWithGameTimestamp(gameCard)) {
+                continue;
+            }
             // If the effected card is controlled by the same controller of the SA, default to untap.
-            boolean tap = pc.chooseBinary(sa, Localizer.getInstance().getMessage("lblTapOrUntapTarget", CardTranslation.getTranslatedName(tgtC.getName())), PlayerController.BinaryChoiceType.TapOrUntap,
-                    !tgtC.getController().equals(sa.getActivatingPlayer()) );
-
+            boolean tap = pc.chooseBinary(sa, Localizer.getInstance().getMessage("lblTapOrUntapTarget", CardTranslation.getTranslatedName(gameCard.getName())), PlayerController.BinaryChoiceType.TapOrUntap,
+                    !gameCard.getController().equals(tapper));
             if (tap) {
-                tgtC.tap(true);
-            } else {
-                tgtC.untap(true);
+                if (gameCard.tap(true, sa, tapper)) tapped.add(gameCard);
+            } else if (gameCard.untap()) {
+                untapMap.computeIfAbsent(tapper, i -> new CardCollection()).add(gameCard);
             }
         }
+        if (!untapMap.isEmpty()) {
+            final Map<AbilityKey, Object> runParams = AbilityKey.newMap();
+            runParams.put(AbilityKey.Map, untapMap);
+            tapper.getGame().getTriggerHandler().runTrigger(TriggerType.UntapAll, runParams, false);
+        }
+        if (!tapped.isEmpty()) {
+            final Map<AbilityKey, Object> runParams = AbilityKey.newMap();
+            runParams.put(AbilityKey.Cards, tapped);
+            tapper.getGame().getTriggerHandler().runTrigger(TriggerType.TapAll, runParams, false);
+        }
     }
-
 }

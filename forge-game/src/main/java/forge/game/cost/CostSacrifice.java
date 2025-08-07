@@ -17,12 +17,8 @@
  */
 package forge.game.cost;
 
+import com.google.common.collect.Sets;
 import forge.card.CardType;
-
-import java.util.Map;
-
-import com.google.common.collect.Iterables;
-
 import forge.game.Game;
 import forge.game.ability.AbilityKey;
 import forge.game.card.Card;
@@ -34,14 +30,14 @@ import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
 import forge.util.Lang;
 
+import java.util.Map;
+import java.util.Set;
+
 /**
  * The Class CostSacrifice.
  */
 public class CostSacrifice extends CostPartWithList {
 
-    /**
-     * Serializables need a version ID.
-     */
     private static final long serialVersionUID = 1L;
 
     /**
@@ -64,9 +60,31 @@ public class CostSacrifice extends CostPartWithList {
     @Override
     public Integer getMaxAmountX(SpellAbility ability, Player payer, final boolean effect) {
         final Card source = ability.getHostCard();
+
+        String type = getType();
+        boolean differentNames = false;
+        if (type.contains("+WithDifferentNames")) {
+            type = type.replace("+WithDifferentNames", "");
+            differentNames = true;
+        }
+
         CardCollectionView typeList = payer.getCardsIn(ZoneType.Battlefield);
-        typeList = CardLists.getValidCards(typeList, getType().split(";"), payer, source, ability);
+        if (!type.contains("X")) {
+            typeList = CardLists.getValidCards(typeList, type.split(";"), payer, source, ability);
+        }
         typeList = CardLists.filter(typeList, CardPredicates.canBeSacrificedBy(ability, effect));
+        if (differentNames) {
+            // TODO rewrite with sharesName to respect Spy Kit
+            final Set<String> crdname = Sets.newHashSet();
+            for (final Card card : typeList) {
+                String name = card.getName();
+                // CR 201.2b Those objects have different names only if each of them has at least one name and no two objects in that group have a name in common
+                if (!card.hasNoName()) {
+                    crdname.add(name);
+                }
+            }
+            return crdname.size();
+        }
         return typeList.size();
     }
 
@@ -99,7 +117,8 @@ public class CostSacrifice extends CostPartWithList {
                 desc = this.getTypeDescription();
             }
 
-            sb.append(convertAmount() == null ? Lang.nounWithNumeralExceptOne(getAmount(), desc)
+            if (desc.startsWith("another")) sb.append(desc);
+            else sb.append(convertAmount() == null ? Lang.nounWithNumeralExceptOne(getAmount(), desc)
                     : Lang.nounWithNumeralExceptOne(convertAmount(), desc));
         }
         return sb.toString();
@@ -130,7 +149,7 @@ public class CostSacrifice extends CostPartWithList {
             CardCollectionView typeList = activator.getCardsIn(ZoneType.Battlefield);
             typeList = CardLists.getValidCards(typeList, getType().split(";"), activator, source, ability);
             // it needs to check if everything can be sacrificed
-            return Iterables.all(typeList, CardPredicates.canBeSacrificedBy(ability, effect));
+            return typeList.allMatch(CardPredicates.canBeSacrificedBy(ability, effect));
         }
 
         int amount = getAbilityAmount(ability);
@@ -142,13 +161,17 @@ public class CostSacrifice extends CostPartWithList {
     }
 
     @Override
-    protected Card doPayment(SpellAbility ability, Card targetCard, final boolean effect) {
-        final Game game = targetCard.getGame();
+    protected Card doPayment(Player payer, SpellAbility ability, Card targetCard, final boolean effect) { return null; }
+    @Override
+    protected boolean canPayListAtOnce() { return true; }
+    @Override
+    protected CardCollectionView doListPayment(Player payer, SpellAbility ability, CardCollectionView targetCards, final boolean effect) {
+        final Game game = ability.getHostCard().getGame();
         // no table there, it is already handled by CostPartWithList
         Map<AbilityKey, Object> moveParams = AbilityKey.newMap();
-        moveParams.put(AbilityKey.LastStateBattlefield, game.getLastStateBattlefield());
-        moveParams.put(AbilityKey.LastStateGraveyard, game.getLastStateGraveyard());
-        return game.getAction().sacrifice(targetCard, ability, effect, null, moveParams);
+        AbilityKey.addCardZoneTableParams(moveParams, table);
+
+        return game.getAction().sacrifice(targetCards, ability, effect, moveParams);
     }
 
     /* (non-Javadoc)

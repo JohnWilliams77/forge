@@ -1,16 +1,6 @@
 package forge.gamemodes.match.input;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Queue;
-
-import org.apache.commons.lang3.StringUtils;
-
 import com.google.common.collect.Lists;
-
 import forge.ai.ComputerUtilMana;
 import forge.ai.PlayerControllerAi;
 import forge.card.ColorSet;
@@ -21,7 +11,9 @@ import forge.game.GameActionUtil;
 import forge.game.card.Card;
 import forge.game.mana.ManaCostBeingPaid;
 import forge.game.player.Player;
+import forge.game.player.PlayerController.FullControlFlag;
 import forge.game.player.PlayerView;
+import forge.game.player.actions.PayManaFromPoolAction;
 import forge.game.spellability.AbilityManaPart;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityView;
@@ -33,6 +25,8 @@ import forge.util.Evaluator;
 import forge.util.ITriggerEvent;
 import forge.util.Localizer;
 import forge.util.TextUtil;
+
+import java.util.*;
 
 public abstract class InputPayMana extends InputSyncronizedBase {
     private static final long serialVersionUID = 718128600948280315L;
@@ -117,7 +111,7 @@ public abstract class InputPayMana extends InputSyncronizedBase {
         List<SpellAbility> result = Lists.newArrayList();
         for (SpellAbility sa : card.getManaAbilities()) {
             result.add(sa);
-            result.addAll(GameActionUtil.getAlternativeCosts(sa, player));
+            result.addAll(GameActionUtil.getAlternativeCosts(sa, player, false));
         }
         final Collection<SpellAbility> toRemove = Lists.newArrayListWithCapacity(result.size());
         for (final SpellAbility sa : result) {
@@ -137,7 +131,7 @@ public abstract class InputPayMana extends InputSyncronizedBase {
     public String getActivateAction(Card card) {
         for (SpellAbility sa : getAllManaAbilities(card)) {
             if (sa.canPlay()) {
-                return "pay mana with card";
+                return Localizer.getInstance().getMessage("lblPayManaWithCard");
             }
         }
         return null;
@@ -186,10 +180,10 @@ public abstract class InputPayMana extends InputSyncronizedBase {
             return abilities;
         }
 
-        final String typeRes = manaCost.getSourceRestriction();
-        if (StringUtils.isNotBlank(typeRes) && !card.getType().hasStringType(typeRes)) {
-            return abilities;
-        }
+        //        final String typeRes = manaCost.getSourceRestriction();
+        //        if (StringUtils.isNotBlank(typeRes) && !card.getType().hasStringType(typeRes)) {
+        //            return abilities;
+        //        }
 
         for (SpellAbility ma : getAllManaAbilities(card)) {
             ma.setActivatingPlayer(player);
@@ -202,6 +196,8 @@ public abstract class InputPayMana extends InputSyncronizedBase {
     public void useManaFromPool(byte colorCode) {
         // find the matching mana in pool.
         if (player.getManaPool().tryPayCostWithColor(colorCode, saPaidFor, manaCost, saPaidFor.getPayingMana())) {
+            // Record paying mana from pool here
+            getController().macros().addRememberedAction(new PayManaFromPoolAction(colorCode));
             onManaAbilityPaid();
             showMessage();
         }
@@ -234,15 +230,10 @@ public abstract class InputPayMana extends InputSyncronizedBase {
         }
 
         final SpellAbility chosen;
-        final String typeRes = manaCost.getSourceRestriction();
 
         if (chosenAbility == null) {
             HashMap<SpellAbilityView, SpellAbility> abilitiesMap = new HashMap<>();
             // you can't remove unneeded abilities inside a for (am:abilities) loop :(
-
-            if (StringUtils.isNotBlank(typeRes) && !card.isValid(typeRes, player, card, null)) {
-                return false;
-            }
 
             boolean guessAbilityWithRequiredColors = true;
             int amountOfMana = -1;
@@ -342,38 +333,30 @@ public abstract class InputPayMana extends InputSyncronizedBase {
         // System.out.println("Chosen sa=" + chosen + " of " + chosen.getHostCard() + " to pay mana");
 
         locked = true;
-        game.getAction().invoke(new Runnable() {
-            @Override
-            public void run() {
-                if (HumanPlay.playSpellAbility(getController(), chosen.getActivatingPlayer(), chosen)) {
-                    final List<AbilityManaPart> manaAbilities = chosen.getAllManaParts();
-                    boolean restrictionsMet = true;
+        game.getAction().invoke(() -> {
+            if (HumanPlay.playSpellAbility(getController(), chosen.getActivatingPlayer(), chosen)) {
+                final List<AbilityManaPart> manaAbilities = chosen.getAllManaParts();
+                boolean restrictionsMet = true;
 
-                    for (AbilityManaPart sa : manaAbilities) {
-                        if (!sa.meetsManaRestrictions(saPaidFor)) {
-                            restrictionsMet = false;
-                            break;
-                        }
-
-                        if (StringUtils.isNotBlank(typeRes) && !card.isValid(typeRes, player, card, null)) {
-                            restrictionsMet = false;
-                            break;
-                        }
+                for (AbilityManaPart sa : manaAbilities) {
+                    if (!sa.meetsManaRestrictions(saPaidFor)) {
+                        restrictionsMet = false;
+                        break;
                     }
-
-                    if (restrictionsMet) {
-                        player.getManaPool().payManaFromAbility(saPaidFor, manaCost, chosen);
-                    }
-                    if (!restrictionsMet || chosen.getPayCosts().hasManaCost()) {
-                        // force refresh in case too much mana got spent
-                        updateButtons();
-                        canPayManaCost = null;
-                    }
-                    onManaAbilityPaid();
                 }
-                // Need to call this to unlock
-                onStateChanged();
+
+                if (restrictionsMet && !player.getController().isFullControl(FullControlFlag.NoPaymentFromManaAbility)) {
+                    player.getManaPool().payManaFromAbility(saPaidFor, manaCost, chosen);
+                }
+                if (!restrictionsMet || chosen.getPayCosts().hasManaCost()) {
+                    // force refresh in case too much mana got spent
+                    updateButtons();
+                    canPayManaCost = null;
+                }
+                onManaAbilityPaid();
             }
+            // Need to call this to unlock
+            onStateChanged();
         });
 
         return true;
@@ -399,19 +382,11 @@ public abstract class InputPayMana extends InputSyncronizedBase {
         if (supportAutoPay() && !locked) { //prevent AI taking over from double-clicking Auto
             locked = true;
             //use AI utility to automatically pay mana cost if possible
-            final Runnable proc = new Runnable() {
-                @Override
-                public void run() {
-                    ComputerUtilMana.payManaCost(manaCost, saPaidFor, player, effect);
-                }
-            };
+            final Runnable proc = () -> ComputerUtilMana.payManaCost(manaCost, saPaidFor, player, effect);
             //must run in game thread as certain payment actions can only be automated there
-            game.getAction().invoke(new Runnable() {
-                @Override
-                public void run() {
-                    runAsAi(proc);
-                    onStateChanged();
-                }
+            game.getAction().invoke(() -> {
+                runAsAi(proc);
+                onStateChanged();
             });
         }
     }
@@ -460,12 +435,7 @@ public abstract class InputPayMana extends InputSyncronizedBase {
             done();
             stop();
         } else {
-            FThreads.invokeInEdtNowOrLater(new Runnable() {
-                @Override
-                public void run() {
-                    updateMessage();
-                }
-            });
+            FThreads.invokeInEdtNowOrLater(this::updateMessage);
         }
     }
 

@@ -22,4 +22,7 @@ public class ConfigData {
     public RewardData legalCards;
     public String[] restrictedCards;
     public String[] restrictedEditions;
+    public String[] allowedEditions;
+    public String[] restrictedEvents;
+    public String[] allowedJumpstart;
 }

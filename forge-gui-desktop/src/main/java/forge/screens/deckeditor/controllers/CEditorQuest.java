@@ -17,23 +17,18 @@
  */
 package forge.screens.deckeditor.controllers;
 
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 import javax.swing.KeyStroke;
 
-import com.google.common.base.Function;
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
-import com.google.common.base.Supplier;
-
 import forge.card.CardRules;
-import forge.card.CardRulesPredicates;
 import forge.card.ColorSet;
 import forge.card.mana.ManaCost;
 import forge.deck.CardPool;
@@ -48,6 +43,7 @@ import forge.gui.framework.DragCell;
 import forge.gui.framework.FScreen;
 import forge.item.InventoryItem;
 import forge.item.PaperCard;
+import forge.item.PaperCardPredicates;
 import forge.itemmanager.CardManager;
 import forge.itemmanager.ColumnDef;
 import forge.itemmanager.ItemManagerConfig;
@@ -134,26 +130,18 @@ public final class CEditorQuest extends CDeckEditor<Deck> {
         this.setCatalogManager(catalogManager);
         this.setDeckManager(deckManager);
 
-        final Supplier<Deck> newCreator = new Supplier<Deck>() {
-            @Override
-            public Deck get() {
-                return new Deck();
-            }
-        };
+        final Supplier<Deck> newCreator = Deck::new;
 
         this.controller = new DeckController<>(questData0.getMyDecks(), this, newCreator);
 
-        getBtnAddBasicLands().setCommand(new UiCommand() {
-            @Override
-            public void run() {
-                Deck deck = getDeckController().getModel();
-                if (deck == null) { return; }
+        getBtnAddBasicLands().setCommand((UiCommand) () -> {
+            Deck deck = getDeckController().getModel();
+            if (deck == null) { return; }
 
-                AddBasicLandsDialog dialog = new AddBasicLandsDialog(deck, questData.getDefaultLandSet());
-                CardPool landsToAdd = dialog.show();
-                if (landsToAdd != null) {
-                    onAddItems(landsToAdd, false);
-                }
+            AddBasicLandsDialog dialog = new AddBasicLandsDialog(deck, questData.getDefaultLandSet());
+            CardPool landsToAdd = dialog.show();
+            if (landsToAdd != null) {
+                onAddItems(landsToAdd, false);
             }
         });
     }
@@ -165,7 +153,7 @@ public final class CEditorQuest extends CDeckEditor<Deck> {
             for (final Entry<PaperCard, Integer> e : deck.getMain()) {
                 final PaperCard card = e.getKey();
                 final Integer amount = result.get(card);
-                result.put(card, Integer.valueOf(amount == null ? 1 : 1 + amount.intValue()));
+                result.put(card, amount == null ? 1 : 1 + amount);
             }
         }
         return result;
@@ -227,12 +215,7 @@ public final class CEditorQuest extends CDeckEditor<Deck> {
         }
         GuiUtils.addMenuItem(cmb.getMenu(), s,
                 KeyStroke.getKeyStroke(48 + n, 0),
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        SetRatingStars(n,cmb);
-                    }
-                });
+                () -> SetRatingStars(n,cmb));
     }
 
     public void SetRatingStars(int n, EditorContextMenuBuilder cmb) {
@@ -318,7 +301,7 @@ public final class CEditorQuest extends CDeckEditor<Deck> {
         }
 
         @Override
-        public boolean apply(PaperCard subject) {
+        public boolean test(PaperCard subject) {
             CardRules cr = subject.getRules();
             ManaCost mc = cr.getManaCost();
             return allowedColor.containsAllColorsFrom(cr.getColorIdentity().getColor());
@@ -362,8 +345,7 @@ public final class CEditorQuest extends CDeckEditor<Deck> {
     }
 
     private ItemPool<PaperCard> getCommanderCardPool(){
-        Predicate<PaperCard> commanderPredicate = Predicates.compose(CardRulesPredicates.Presets.CAN_BE_COMMANDER, PaperCard.FN_GET_RULES);
-        return getRemainingCardPool().getFilteredPool(commanderPredicate);
+        return getRemainingCardPool().getFilteredPool(PaperCardPredicates.CAN_BE_COMMANDER);
     }
 
     @Override
@@ -448,13 +430,10 @@ public final class CEditorQuest extends CDeckEditor<Deck> {
         for (DeckSection section : allSections) {
             this.getCbxSection().addItem(section);
         }
-        this.getCbxSection().addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent actionEvent) {
-                FComboBox cb = (FComboBox)actionEvent.getSource();
-                DeckSection ds = (DeckSection)cb.getSelectedItem();
-                setEditorMode(ds);
-            }
+        this.getCbxSection().addActionListener(actionEvent -> {
+            FComboBox cb = (FComboBox)actionEvent.getSource();
+            DeckSection ds = (DeckSection)cb.getSelectedItem();
+            setEditorMode(ds);
         });
         this.getCbxSection().setVisible(true);
 

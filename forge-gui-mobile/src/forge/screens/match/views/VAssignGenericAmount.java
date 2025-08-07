@@ -31,17 +31,17 @@ import forge.assets.FSkinColor;
 import forge.assets.FSkinColor.Colors;
 import forge.assets.FSkinFont;
 import forge.assets.FSkinImage;
+import forge.assets.FSkinImageInterface;
 import forge.card.CardZoom;
 import forge.card.MagicColor;
 import forge.game.card.CardView;
 import forge.game.player.PlayerView;
+import forge.localinstance.skin.FSkinProp;
 import forge.screens.match.MatchController;
 import forge.toolbox.FCardPanel;
 import forge.toolbox.FContainer;
 import forge.toolbox.FDialog;
 import forge.toolbox.FDisplayObject;
-import forge.toolbox.FEvent;
-import forge.toolbox.FEvent.FEventHandler;
 import forge.toolbox.FLabel;
 import forge.toolbox.FOptionPane;
 import forge.toolbox.FScrollPane;
@@ -70,7 +70,6 @@ public class VAssignGenericAmount extends FDialog {
 
     /** Constructor.
      *
-     * @param attacker0 {@link forge.game.card.Card}
      * @param targets Map<GameEntity, Integer>, map of GameEntity and its maximum assignable amount
      * @param amount Total amount to be assigned
      * @param atLeastOne Must assign at least one amount to each target
@@ -88,18 +87,10 @@ public class VAssignGenericAmount extends FDialog {
         pnlSource = add(new EffectSourcePanel(effectSource));
         pnlTargets = add(new TargetsPanel(targets));
 
-        initButton(0, Forge.getLocalizer().getMessage("lblOK"), new FEventHandler() {
-            @Override
-            public void handleEvent(FEvent e) {
-                finish();
-            }
-        });
-        initButton(1, Forge.getLocalizer().getMessage("lblReset"), new FEventHandler() {
-            @Override
-            public void handleEvent(FEvent e) {
-                resetAssignedDamage();
-                initialAssignAmount();
-            }
+        initButton(0, Forge.getLocalizer().getMessage("lblOK"), e -> finish());
+        initButton(1, Forge.getLocalizer().getMessage("lblReset"), e -> {
+            resetAssignedDamage();
+            initialAssignAmount();
         });
 
         initialAssignAmount();
@@ -176,40 +167,30 @@ public class VAssignGenericAmount extends FDialog {
                 obj = add(new EffectSourcePanel((CardView)entity));
             } else if (entity instanceof PlayerView) {
                 PlayerView player = (PlayerView)entity;
-                obj = add(new MiscTargetPanel(player.getName(), MatchController.getPlayerAvatar(player)));
+                obj = add(new MiscTargetPanel(player.getName(), MatchController.getPlayerAvatar(player), null));
             } else if (entity instanceof Byte) {
-                FSkinImage manaSymbol;
-                Byte color = (Byte) entity;
+                FSkinImageInterface manaSymbol;
+                byte color = (Byte) entity;
                 if (color == MagicColor.WHITE) {
-                    manaSymbol = FSkinImage.MANA_W;
+                    manaSymbol = Forge.getAssets().images().get(FSkinProp.IMG_MANA_W);
                 } else if (color == MagicColor.BLUE) {
-                    manaSymbol = FSkinImage.MANA_U;
+                    manaSymbol = Forge.getAssets().images().get(FSkinProp.IMG_MANA_U);
                 } else if (color == MagicColor.BLACK) {
-                    manaSymbol = FSkinImage.MANA_B;
+                    manaSymbol = Forge.getAssets().images().get(FSkinProp.IMG_MANA_B);
                 } else if (color == MagicColor.RED) {
-                    manaSymbol = FSkinImage.MANA_R;
+                    manaSymbol = Forge.getAssets().images().get(FSkinProp.IMG_MANA_R);
                 } else if (color == MagicColor.GREEN) {
-                    manaSymbol = FSkinImage.MANA_G;
+                    manaSymbol = Forge.getAssets().images().get(FSkinProp.IMG_MANA_G);
                 } else { // Should never come here, but add this to avoid compile error
-                    manaSymbol = FSkinImage.MANA_COLORLESS;
+                    manaSymbol = Forge.getAssets().images().get(FSkinProp.IMG_MANA_COLORLESS);
                 }
-                obj = add(new MiscTargetPanel("", manaSymbol));
+                obj = add(new MiscTargetPanel("", manaSymbol, entity));
             } else {
-                obj = add(new MiscTargetPanel(entity.toString(), FSkinImage.UNKNOWN));
+                obj = add(new MiscTargetPanel(entity.toString(), FSkinImage.UNKNOWN, null));
             }
             label = add(new FLabel.Builder().text("0").font(FSkinFont.get(18)).align(Align.center).build());
-            btnSubtract = add(new FLabel.ButtonBuilder().icon(FSkinImage.MINUS).command(new FEventHandler() {
-                @Override
-                public void handleEvent(FEvent e) {
-                    assignAmountTo(entity, false);
-                }
-            }).build());
-            btnAdd = add(new FLabel.ButtonBuilder().icon(Forge.hdbuttons ? FSkinImage.HDPLUS : FSkinImage.PLUS).command(new FEventHandler() {
-                @Override
-                public void handleEvent(FEvent e) {
-                    assignAmountTo(entity, true);
-                }
-            }).build());
+            btnSubtract = add(new FLabel.ButtonBuilder().icon(FSkinImage.MINUS).command(e -> assignAmountTo(entity, false)).build());
+            btnAdd = add(new FLabel.ButtonBuilder().icon(Forge.hdbuttons ? FSkinImage.HDPLUS : FSkinImage.PLUS).command(e -> assignAmountTo(entity, true)).build());
         }
 
         @Override
@@ -250,19 +231,21 @@ public class VAssignGenericAmount extends FDialog {
         }
     }
 
-    private static class MiscTargetPanel extends FDisplayObject {
-        private static final FSkinFont FONT = FSkinFont.get(18);
-        private static FSkinColor getForeColor() {
+    private class MiscTargetPanel extends FDisplayObject {
+        private final FSkinFont FONT = FSkinFont.get(18);
+        private FSkinColor getForeColor() {
             if (Forge.isMobileAdventureMode)
                 return FSkinColor.get(Colors.ADV_CLR_TEXT);
             return FSkinColor.get(Colors.CLR_TEXT);
         }
         private final String name;
         private final FImage image;
+        private final Object entity;
 
-        private MiscTargetPanel(String name0, FImage image0) {
+        private MiscTargetPanel(String name0, FImage image0, Object entity0) {
             name = name0;
             image = image0;
+            entity = entity0;
         }
 
         @Override
@@ -271,6 +254,24 @@ public class VAssignGenericAmount extends FDialog {
             float h = getHeight();
             g.drawImage(image, 0, 0, w, w);
             g.drawText(name, FONT, getForeColor(), 0, w, w, h - w, false, Align.center, true);
+        }
+
+        @Override
+        public boolean tap(float x, float y, int count) {
+            if (count > 1 && entity != null) {
+                AssignTarget at = targetsMap.get(entity);
+                int assigned = at.amount;
+                int leftToAssign = Math.max(0, at.max - assigned);
+                int amountToAdd = Math.min(getRemainingAmount(), leftToAssign);
+
+                if (0 == amountToAdd || amountToAdd + assigned < 0) {
+                    return false;
+                }
+
+                addAssignedAmount(at, amountToAdd);
+                updateLabels();
+            }
+            return super.tap(x, y, count);
         }
     }
 

@@ -7,6 +7,7 @@ import forge.adventure.util.SaveFileData;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Random;
 
 /**
  * Class to save point of interest changes, like sold cards and dead enemies
@@ -16,9 +17,10 @@ public class PointOfInterestChanges implements SaveFileContent  {
     private final HashMap<Integer, HashSet<Integer>> cardsBought = new HashMap<>();
     private final java.util.Map<String, Byte> mapFlags = new HashMap<>();
     private final java.util.Map<Integer, Long> shopSeeds = new HashMap<>();
-    private final java.util.Map<Integer, Float> shopModifiers = new HashMap<>();
+    //private final java.util.Map<Integer, Float> shopModifiers = new HashMap<>();
     private final java.util.Map<Integer, Integer> reputation = new HashMap<>();
     private Boolean isBookmarked;
+    private Boolean isVisited;
 
     public static class Map extends HashMap<String,PointOfInterestChanges> implements SaveFileContent {
         @Override
@@ -61,9 +63,12 @@ public class PointOfInterestChanges implements SaveFileContent  {
         shopSeeds.putAll((java.util.Map<Integer, Long>) data.readObject("shopSeeds"));
         mapFlags.clear();
         mapFlags.putAll((java.util.Map<String, Byte>) data.readObject("mapFlags"));
-        shopModifiers.clear();
-        shopModifiers.putAll((java.util.Map<Integer, Float>) data.readObject("shopModifiers"));
+        reputation.clear();
+        if (data.containsKey("reputation")) {
+            reputation.putAll((java.util.Map<Integer, Integer>) data.readObject("reputation"));
+        }
         isBookmarked = (Boolean) data.readObject("isBookmarked");
+        isVisited = (Boolean) data.readObject("isVisited");
     }
 
     @Override
@@ -73,8 +78,9 @@ public class PointOfInterestChanges implements SaveFileContent  {
         data.storeObject("cardsBought",cardsBought);
         data.storeObject("mapFlags", mapFlags);
         data.storeObject("shopSeeds", shopSeeds);
-        data.storeObject("shopModifiers", shopModifiers);
+        data.storeObject("reputation", reputation);
         data.storeObject("isBookmarked", isBookmarked);
+        data.storeObject("isVisited", isVisited);
         return data;
     }
 
@@ -107,8 +113,7 @@ public class PointOfInterestChanges implements SaveFileContent  {
     }
 
     public void generateNewShopSeed(int objectID){
-
-        shopSeeds.put(objectID, Current.world().getRandom().nextLong());
+        shopSeeds.put(objectID, shopSeeds.containsKey(objectID)? new Random(shopSeeds.get(objectID)).nextLong() : Current.world().getRandom().nextLong());
         cardsBought.put(objectID, new HashSet<>()); //Allows cards to appear in slots of previous purchases
     }
 
@@ -145,7 +150,7 @@ public class PointOfInterestChanges implements SaveFileContent  {
 
     public void addObjectReputation(int id, int delta)
     {
-        reputation.put(id, (reputation.containsKey(id)?reputation.get(id):0) + delta);
+        reputation.put(id, (reputation.getOrDefault(id, 0)) + delta);
     }
 
     public int getMapReputation(){
@@ -174,5 +179,13 @@ public class PointOfInterestChanges implements SaveFileContent  {
     public void clearDeletedObjects() {
         // reset map when assigning as a quest target that needs enemies
         deletedObjects.clear();
+    }
+    public boolean isVisited() {
+        if (isVisited ==null)
+            return false;
+        return isVisited;
+    }
+    public void visit() {
+        isVisited = true;
     }
 }

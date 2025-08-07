@@ -1,6 +1,6 @@
 package forge.ai.simulation;
 
-import forge.game.spellability.LandAbility;
+
 
 import java.util.ArrayList;
 import java.util.List;
@@ -84,7 +84,7 @@ public class SpellAbilityPickerSimulationTest extends SimulationTest {
 
         SpellAbilityPicker picker = new SpellAbilityPicker(game, p);
         SpellAbility sa = picker.chooseSpellAbilityToPlay(null);
-        AssertJUnit.assertTrue(sa instanceof LandAbility);
+        AssertJUnit.assertTrue(sa.isLandAbility());
         AssertJUnit.assertEquals(mountain, sa.getHostCard());
 
         Plan plan = picker.getPlan();
@@ -274,6 +274,8 @@ public class SpellAbilityPickerSimulationTest extends SimulationTest {
         // Next, expected to use Thespian's Stage to copy Dark Depths.
         Plan.Decision d2 = picker.getPlan().getDecisions().get(1);
         String expected = "{2}, {T}: Thespian's Stage becomes a copy of target land, except it has this ability.";
+
+        AssertJUnit.assertNotNull(d2.saRef);
         AssertJUnit.assertEquals(expected, d2.saRef.toString());
         AssertJUnit.assertTrue(d2.targets.toString().contains("Dark Depths"));
     }
@@ -534,7 +536,7 @@ public class SpellAbilityPickerSimulationTest extends SimulationTest {
         AssertJUnit.assertTrue(saDesc, saDesc.startsWith("Lightning Bolt deals 3 damage to any target."));
     }
 
-    @Test
+    @Test(enabled = true)
     public void testPlayingPumpSpellsAfterBlocks() {
         Game game = initAndCreateGame();
         Player p = game.getPlayers().get(1);
@@ -542,7 +544,7 @@ public class SpellAbilityPickerSimulationTest extends SimulationTest {
         opponent.setLife(2, null);
 
         Card blocker = addCard("Fugitive Wizard", opponent);
-        Card attacker1 = addCard("Dwarven Trader", p);
+        Card attacker1 = addCard("Gray Ogre", p);
         attacker1.setSickness(false);
         Card attacker2 = addCard("Dwarven Trader", p);
         attacker2.setSickness(false);
@@ -574,6 +576,8 @@ public class SpellAbilityPickerSimulationTest extends SimulationTest {
         combat.getBandOfAttacker(attacker2).setBlocked(false);
         combat.orderBlockersForDamageAssignment();
         combat.orderAttackersForDamageAssignment();
+        game.getAction().checkStateEffects(true);
+
         SpellAbility sa = picker.chooseSpellAbilityToPlay(null);
         AssertJUnit.assertNotNull(sa);
         AssertJUnit.assertEquals("Target creature gets +3/+3 until end of turn.", sa.toString());
@@ -767,7 +771,7 @@ public class SpellAbilityPickerSimulationTest extends SimulationTest {
 
         SpellAbilityPicker picker = new SpellAbilityPicker(game, p);
          picker.chooseSpellAbilityToPlay(null);
-        // Only mode "Creatures with power 3 or less can’t block this turn" should be simulated.
+        // Only mode "Creatures with power 3 or less can't block this turn" should be simulated.
         AssertJUnit.assertEquals(1, picker.getNumSimulations());
     }
 
@@ -859,5 +863,38 @@ public class SpellAbilityPickerSimulationTest extends SimulationTest {
         AssertJUnit.assertEquals(2, targets.size());
         AssertJUnit.assertTrue(targets.toString().contains("Forest Bear"));
         AssertJUnit.assertTrue(targets.toString().contains("Flying Men"));
+    }
+
+    @Test
+    public void testPithingNeedlePreventsAbilitiesFromBeingChosen() {
+        Game game = initAndCreateGame();
+        Player p = game.getPlayers().get(1);
+        Player opponent = game.getPlayers().get(0);
+        opponent.setLife(1, null);
+        Card goblinBombardment = addCard("Goblin Bombardment", p);
+        addCard("Flying Men", p);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN2, p);
+
+        final SpellAbilityPicker picker = new SpellAbilityPicker(game, p);
+        Runnable assertPickIsGoblinBombardmentTargetingOpponent = () -> {
+            game.getAction().checkStateEffects(true);
+            SpellAbility sa = picker.chooseSpellAbilityToPlay(null);
+            AssertJUnit.assertNotNull(sa);
+            AssertJUnit.assertEquals(goblinBombardment, sa.getHostCard());
+            MultiTargetSelector.Targets targets = picker.getPlan().getSelectedDecision().targets;
+            AssertJUnit.assertEquals(1, targets.size());
+            AssertJUnit.assertTrue(targets.toString().contains(opponent.getName()));
+        };
+        assertPickIsGoblinBombardmentTargetingOpponent.run();
+
+        // If we have a Pithing Needle, but it's naming something else, that's still fine.
+        Card pithingNeedle = addCard("Pithing Needle", opponent);
+        pithingNeedle.addNamedCard("Flooded Strand");
+        assertPickIsGoblinBombardmentTargetingOpponent.run();
+
+        // But if it's naming Gobling Bombardment, then we can't choose that SA.
+        pithingNeedle.addNamedCard("Goblin Bombardment");
+        game.getAction().checkStateEffects(true);
+        AssertJUnit.assertNull(picker.chooseSpellAbilityToPlay(null));
     }
 }

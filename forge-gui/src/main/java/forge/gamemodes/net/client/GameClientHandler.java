@@ -1,19 +1,8 @@
 package forge.gamemodes.net.client;
 
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.EnumMap;
-import java.util.Iterator;
-import java.util.List;
-
 import com.google.common.collect.Lists;
-
 import forge.LobbyPlayer;
-import forge.game.Game;
-import forge.game.GameRules;
-import forge.game.GameType;
-import forge.game.GameView;
-import forge.game.Match;
+import forge.game.*;
 import forge.game.player.PlayerView;
 import forge.game.player.RegisteredPlayer;
 import forge.gamemodes.match.LobbySlot;
@@ -34,6 +23,11 @@ import forge.trackable.TrackableObject;
 import forge.trackable.TrackableTypes;
 import forge.trackable.Tracker;
 import io.netty.channel.ChannelHandlerContext;
+
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.Iterator;
+import java.util.List;
 
 final class GameClientHandler extends GameProtocolHandler<IGuiGame> {
     private final FGameClient client;
@@ -216,13 +210,10 @@ final class GameClientHandler extends GameProtocolHandler<IGuiGame> {
         }
 
         final List<RegisteredPlayer> sortedPlayers = Lists.newArrayList(players);
-        Collections.sort(sortedPlayers, new Comparator<RegisteredPlayer>() {
-            @Override
-            public final int compare(final RegisteredPlayer p1, final RegisteredPlayer p2) {
-                final int v1 = p1.getPlayer() instanceof LobbyPlayerHuman ? 0 : 1;
-                final int v2 = p2.getPlayer() instanceof LobbyPlayerHuman ? 0 : 1;
-                return Integer.compare(v1, v2);
-            }
+        sortedPlayers.sort((p1, p2) -> {
+            final int v1 = p1.getPlayer() instanceof LobbyPlayerHuman ? 0 : 1;
+            final int v2 = p2.getPlayer() instanceof LobbyPlayerHuman ? 0 : 1;
+            return Integer.compare(v1, v2);
         });
 
         return sortedPlayers;

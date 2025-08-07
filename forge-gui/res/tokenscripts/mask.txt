@@ -2,7 +2,7 @@ Name:Mask
 ManaCost:no cost
 Colors:white
 Types:Enchantment Aura
-K:Enchant permanent
-K:Totem armor
-A:SP$ Attach | Cost$ 0 | ValidTgts$ Permanent | AILogic$ Pump
-Oracle:Enchant permanent\nTotem armor
+K:Enchant:Permanent:permanent
+K:Umbra armor
+SVar:AttachAILogic:Pump
+Oracle:Enchant permanent\nUmbra armor

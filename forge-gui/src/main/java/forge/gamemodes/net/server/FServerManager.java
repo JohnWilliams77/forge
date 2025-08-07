@@ -1,52 +1,24 @@
 package forge.gamemodes.net.server;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.DatagramSocket;
-import java.net.Inet4Address;
-import java.net.Inet6Address;
-import java.net.InetAddress;
-import java.net.NetworkInterface;
-import java.net.SocketException;
-import java.net.URL;
-import java.net.UnknownHostException;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Enumeration;
-import java.util.Map;
-
-import org.fourthline.cling.UpnpService;
-import org.fourthline.cling.UpnpServiceImpl;
-import org.fourthline.cling.support.igd.PortMappingListener;
-import org.fourthline.cling.support.model.PortMapping;
-
-import com.google.common.base.Predicates;
-import com.google.common.collect.Iterables;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
-
 import forge.gamemodes.match.LobbySlot;
 import forge.gamemodes.match.LobbySlotType;
 import forge.gamemodes.net.CompatibleObjectDecoder;
 import forge.gamemodes.net.CompatibleObjectEncoder;
-import forge.gamemodes.net.event.LobbyUpdateEvent;
-import forge.gamemodes.net.event.LoginEvent;
-import forge.gamemodes.net.event.LogoutEvent;
-import forge.gamemodes.net.event.MessageEvent;
-import forge.gamemodes.net.event.NetEvent;
-import forge.gamemodes.net.event.UpdateLobbyPlayerEvent;
+import forge.gamemodes.net.event.*;
 import forge.gui.GuiBase;
 import forge.gui.interfaces.IGuiGame;
+import forge.gui.util.SOptionPane;
 import forge.interfaces.IGameController;
 import forge.interfaces.ILobbyListener;
+import forge.model.FModel;
+import forge.util.IterableUtil;
+import forge.util.Localizer;
+import forge.localinstance.properties.ForgeNetPreferences;
+
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelPipeline;
-import io.netty.channel.EventLoopGroup;
+import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -54,31 +26,44 @@ import io.netty.handler.codec.serialization.ClassResolvers;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 
+import org.jupnp.UpnpService;
+import org.jupnp.UpnpServiceImpl;
+import org.jupnp.support.igd.PortMappingListener;
+import org.jupnp.support.model.PortMapping;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.*;
+import java.util.*;
+import java.util.function.Predicate;
+
 public final class FServerManager {
     private static FServerManager instance = null;
-
-    private byte[] externalAddress = new byte[]{8,8,8,8};
+    private final Map<Channel, RemoteClient> clients = Maps.newTreeMap();
     private boolean isHosting = false;
     private EventLoopGroup bossGroup = new NioEventLoopGroup(1);
     private EventLoopGroup workerGroup = new NioEventLoopGroup();
     private UpnpService upnpService = null;
-    private final Map<Channel, RemoteClient> clients = Maps.newTreeMap();
     private ServerGameLobby localLobby;
     private ILobbyListener lobbyListener;
-    private final Thread shutdownHook = new Thread(new Runnable() {
-        @Override public final void run() {
-            if (isHosting()) {
-                stopServer(false);
-            }
+    private boolean UPnPMapped = false;
+    private int port;
+    private static final Localizer localizer = Localizer.getInstance();
+    private final Thread shutdownHook = new Thread(() -> {
+        if (isHosting()) {
+            stopServer(false);
         }
     });
 
     private FServerManager() {
     }
 
+
     RemoteClient getClient(final Channel ch) {
         return clients.get(ch);
     }
+
     IGameController getController(final int index) {
         return localLobby.getController(index);
     }
@@ -96,6 +81,15 @@ public final class FServerManager {
     }
 
     public void startServer(final int port) {
+        this.port = port;
+        String UPnPOption = FModel.getNetPreferences().getPref(ForgeNetPreferences.FNetPref.UPnP);
+        boolean startUPnP;
+        if(UPnPOption.equalsIgnoreCase("ASK")) {
+            startUPnP = callUPnPDialog();
+        } else {
+            startUPnP = UPnPOption.equalsIgnoreCase("ALWAYS");
+        }
+        System.out.println("Starting Multiplayer Server");
         try {
             final ServerBootstrap b = new ServerBootstrap()
                     .group(bossGroup, workerGroup)
@@ -103,11 +97,11 @@ public final class FServerManager {
                     .handler(new LoggingHandler(LogLevel.INFO))
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
-                        public final void initChannel(final SocketChannel ch) throws Exception {
+                        public void initChannel(final SocketChannel ch) throws Exception {
                             final ChannelPipeline p = ch.pipeline();
                             p.addLast(
                                     new CompatibleObjectEncoder(),
-                                    new CompatibleObjectDecoder(9766*1024, ClassResolvers.cacheDisabled(null)),
+                                    new CompatibleObjectDecoder(9766 * 1024, ClassResolvers.cacheDisabled(null)),
                                     new MessageHandler(),
                                     new RegisterClientHandler(),
                                     new LobbyInputHandler(),
@@ -118,28 +112,54 @@ public final class FServerManager {
 
             // Bind and start to accept incoming connections.
             final ChannelFuture ch = b.bind(port).sync().channel().closeFuture();
-            new Thread(new Runnable() {
-                @Override public void run() {
-                    try {
-                        ch.sync();
-                    } catch (final InterruptedException e) {
-                        e.printStackTrace();
-                    } finally {
-                        stopServer();
-                    }
+            new Thread(() -> {
+                try {
+                    ch.sync();
+                } catch (final InterruptedException e) {
+                    System.out.println(e.getMessage());
+                    e.printStackTrace();
+                } finally {
+                    stopServer();
                 }
             }).start();
-            mapNatPort(port);
+            if(startUPnP) {
+                mapNatPort();
+            }
             Runtime.getRuntime().addShutdownHook(shutdownHook);
             isHosting = true;
         } catch (final InterruptedException e) {
+            System.out.println(e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    private boolean callUPnPDialog() {
+        switch (SOptionPane.showOptionDialog(localizer.getMessageorUseDefault("lblUPnPQuestion", String.format("Attempt to open port %d automatically?", port), port),
+                localizer.getMessageorUseDefault("lblUPnPTitle", "UPnP option"),
+                null,
+                ImmutableList.of(localizer.getMessageorUseDefault("lblJustOnce", "Just Once"),
+                        localizer.getMessageorUseDefault("lblNotNow", "Not Now"),
+                        localizer.getMessageorUseDefault("lblAlways", "Always"),
+                        localizer.getMessageorUseDefault("lblNever", "Never")), 0)) {
+            case 2:
+                FModel.getNetPreferences().setPref(ForgeNetPreferences.FNetPref.UPnP, "ALWAYS");
+                FModel.getNetPreferences().save();
+            case 0:
+                //case 2 falls in here
+                return true;
+            case 3:
+                FModel.getNetPreferences().setPref(ForgeNetPreferences.FNetPref.UPnP, "NEVER");
+                FModel.getNetPreferences().save();
+            default:
+                //case 1 defaults to here
+                return false;
         }
     }
 
     public void stopServer() {
         stopServer(true);
     }
+
     private void stopServer(final boolean removeShutdownHook) {
         bossGroup.shutdownGracefully();
         workerGroup.shutdownGracefully();
@@ -167,17 +187,22 @@ public final class FServerManager {
         }
         broadcastTo(event, clients.values());
     }
+
     public void broadcastExcept(final NetEvent event, final RemoteClient notTo) {
         broadcastExcept(event, Collections.singleton(notTo));
     }
+
     public void broadcastExcept(final NetEvent event, final Collection<RemoteClient> notTo) {
-        broadcastTo(event, Iterables.filter(clients.values(), Predicates.not(Predicates.in(notTo))));
+        Predicate<RemoteClient> filter = Predicate.not(notTo::contains);
+        broadcastTo(event, IterableUtil.filter(clients.values(), filter));
     }
+
     private void broadcastTo(final NetEvent event, final Iterable<RemoteClient> to) {
         for (final RemoteClient client : to) {
             broadcastTo(event, client);
         }
     }
+
     private void broadcastTo(final NetEvent event, final RemoteClient to) {
         event.updateForClient(to);
         to.send(event);
@@ -188,11 +213,9 @@ public final class FServerManager {
     }
 
     public void unsetReady() {
-        if (this.localLobby != null) {
-            if (this.localLobby.getSlot(0) != null) {
+        if (this.localLobby != null && this.localLobby.getSlot(0) != null) {
                 this.localLobby.getSlot(0).setIsReady(false);
                 updateLobbyState();
-            }
         }
     }
 
@@ -231,35 +254,35 @@ public final class FServerManager {
     // inspired by:
     //  https://stackoverflow.com/a/34873630
     //  https://stackoverflow.com/a/901943
-    private String getRoutableAddress(boolean preferIpv4, boolean preferIPv6) throws SocketException, UnknownHostException {
-        try (DatagramSocket s = new DatagramSocket()) {
-            s.connect(InetAddress.getByAddress(this.externalAddress), 0);
-            NetworkInterface n = NetworkInterface.getByInetAddress(s.getLocalAddress());
-            Enumeration<InetAddress> en = n.getInetAddresses();
-            while (en.hasMoreElements()) {
-                InetAddress addr = en.nextElement();
-                if (addr instanceof Inet4Address) {
-                    if (preferIPv6) {
-                        continue;
+    private static String getRoutableAddress(boolean preferIpv4, boolean preferIPv6) throws SocketException, UnknownHostException {
+        try (DatagramSocket socket = new DatagramSocket()) {
+            // Connect to a well-known external address (Google's public DNS server)
+            socket.connect(InetAddress.getByName("8.8.8.8"), 12345); // Use a valid port instead of 0
+            InetAddress localAddress = socket.getLocalAddress();
+
+            // Check if the local address belongs to a valid network interface
+            NetworkInterface networkInterface = NetworkInterface.getByInetAddress(localAddress);
+            if (networkInterface != null && networkInterface.isUp()) {
+                Enumeration<InetAddress> addresses = networkInterface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress addr = addresses.nextElement();
+                    if (addr instanceof Inet4Address && preferIpv4) {
+                        return addr.getHostAddress();
                     }
-                    return addr.getHostAddress();
-                }
-                if (addr instanceof Inet6Address) {
-                    if (preferIpv4) {
-                        continue;
+                    if (addr instanceof Inet6Address && preferIPv6) {
+                        return addr.getHostAddress();
                     }
-                    return addr.getHostAddress();
                 }
             }
         }
-        return null;
+        return "localhost";
     }
 
-    public String getLocalAddress() {
+    public static String getLocalAddress() {
         try {
             return getRoutableAddress(true, false);
-        }
-        catch (final Exception e) {
+        } catch (final Exception e) {
+            System.out.println(e.getMessage());
             e.printStackTrace();
             return "localhost";
         }
@@ -268,18 +291,19 @@ public final class FServerManager {
     public static String getExternalAddress() {
         BufferedReader in = null;
         try {
-            URL whatismyip = new URL("http://checkip.amazonaws.com");
+            URL whatismyip = new URL("https://checkip.amazonaws.com");
             in = new BufferedReader(new InputStreamReader(
                     whatismyip.openStream()));
-            String ip = in.readLine();
-            return ip;
+            return in.readLine();
         } catch (IOException e) {
+            System.out.println(e.getMessage());
             e.printStackTrace();
         } finally {
             if (in != null) {
                 try {
                     in.close();
                 } catch (IOException e) {
+                    System.out.println(e.getMessage());
                     e.printStackTrace();
                 }
             }
@@ -287,17 +311,25 @@ public final class FServerManager {
         return null;
     }
 
-    private void mapNatPort(final int port) {
+    private void mapNatPort() {
         final String localAddress = getLocalAddress();
         final PortMapping portMapping = new PortMapping(port, localAddress, PortMapping.Protocol.TCP, "Forge");
+        // Shutdown existing UPnP service if already running
         if (upnpService != null) {
-            // Safeguard shutdown call, to prevent lingering port mappings
             upnpService.shutdown();
         }
+
         try {
-            upnpService = new UpnpServiceImpl(new PortMappingListener(portMapping));
+            // Create a new UPnP service instance
+            upnpService = new UpnpServiceImpl(GuiBase.getInterface().getUpnpPlatformService());
+            upnpService.startup();
+
+            // Add a PortMappingListener
+            upnpService.getRegistry().addListener(new PortMappingListener(portMapping));
+            // Trigger device discovery
             upnpService.getControlPoint().search();
-        }catch (Error e){
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
             e.printStackTrace();
         }
     }
@@ -339,7 +371,8 @@ public final class FServerManager {
     }
 
     private class LobbyInputHandler extends ChannelInboundHandlerAdapter {
-        @Override public void channelRead(final ChannelHandlerContext ctx, final Object msg) throws Exception {
+        @Override
+        public void channelRead(final ChannelHandlerContext ctx, final Object msg) throws Exception {
             final RemoteClient client = clients.get(ctx.channel());
             if (msg instanceof LoginEvent) {
                 final LoginEvent event = (LoginEvent) msg;
@@ -372,5 +405,4 @@ public final class FServerManager {
             super.channelInactive(ctx);
         }
     }
-
 }

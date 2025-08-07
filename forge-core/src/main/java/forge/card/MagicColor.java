@@ -1,8 +1,7 @@
 package forge.card;
 
-import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
+import forge.deck.DeckRecognizer;
 
 /**
  * Holds byte values for each color magic has.
@@ -108,6 +107,14 @@ public final class MagicColor {
         }
     }
 
+    public static String toSymbol(final byte color) {
+        return MagicColor.Color.fromByte(color).getSymbol();
+    }
+
+    public static String toSymbol(final String color) {
+        return toSymbol(fromName(color));
+    }
+
     /**
      * The Interface Color.
      */
@@ -140,13 +147,9 @@ public final class MagicColor {
         /** The Basic lands. */
         public static final ImmutableList<String> BASIC_LANDS = ImmutableList.of("Plains", "Island", "Swamp", "Mountain", "Forest");
         public static final ImmutableList<String> SNOW_LANDS = ImmutableList.of("Snow-Covered Plains", "Snow-Covered Island", "Snow-Covered Swamp", "Snow-Covered Mountain", "Snow-Covered Forest");
-        public static final ImmutableMap<String, String> ANY_COLOR_CONVERSION = new ImmutableMap.Builder<String, String>()
-                .put("ManaConversion", "AnyType->AnyColor")
-                .build();
+        public static final String ANY_COLOR_CONVERSION = "AnyType->AnyColor";
 
-        public static final ImmutableMap<String, String> ANY_TYPE_CONVERSION = new ImmutableMap.Builder<String, String>()
-                .put("ManaConversion", "AnyType->AnyType")
-                .build();
+        public static final String ANY_TYPE_CONVERSION = "AnyType->AnyType";
         /**
          * Private constructor to prevent instantiation.
          */
@@ -171,9 +174,26 @@ public final class MagicColor {
             symbol = symbol0;
         }
 
+        public static Color fromByte(final byte color) {
+            switch (color) {
+                case MagicColor.WHITE: return WHITE;
+                case MagicColor.BLUE: return BLUE;
+                case MagicColor.BLACK: return BLACK;
+                case MagicColor.RED: return RED;
+                case MagicColor.GREEN: return GREEN;
+                default: return COLORLESS;
+            }
+        }
+
         public String getName() {
             return name;
         }
+
+        public String getLocalizedName() {
+            //Should probably move some of this logic back here, or at least to a more general location.
+            return DeckRecognizer.getLocalisedMagicColorName(getName());
+        }
+
         public byte getColormask() {
             return colormask;
         }
@@ -186,10 +206,4 @@ public final class MagicColor {
         }
     }
 
-    public static final Function<Color, String> FN_GET_SYMBOL = new Function<Color, String>() {
-        @Override
-        public String apply(final Color color) {
-            return color.symbol;
-        }
-    };
 }

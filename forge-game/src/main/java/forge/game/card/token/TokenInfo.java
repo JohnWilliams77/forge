@@ -1,28 +1,28 @@
 package forge.game.card.token;
 
-import java.util.List;
-import java.util.Map;
-
-import org.apache.commons.lang3.ObjectUtils;
-import org.apache.commons.lang3.StringUtils;
-
 import com.google.common.base.Joiner;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-
 import forge.ImageKeys;
 import forge.StaticData;
 import forge.card.CardType;
+import forge.card.GamePieceType;
 import forge.card.MagicColor;
 import forge.game.Game;
 import forge.game.ability.AbilityUtils;
 import forge.game.card.Card;
+import forge.game.card.CardFactory;
 import forge.game.card.CardFactoryUtil;
 import forge.game.card.CardUtil;
 import forge.game.keyword.KeywordInterface;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.item.PaperToken;
+import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.List;
+import java.util.Map;
 
 public class TokenInfo {
     final String name;
@@ -99,20 +99,24 @@ public class TokenInfo {
         for (CardType.CoreType t : c.getType().getCoreTypes()) {
             relevantTypes.add(t.name());
         }
-        Iterables.addAll(relevantTypes, c.getType().getSubtypes());
+        c.getType().getSubtypes().forEach(relevantTypes::add);
         if (c.getType().isLegendary()) {
             relevantTypes.add("Legendary");
         }
-        return relevantTypes.toArray(new String[relevantTypes.size()]);
+        return relevantTypes.toArray(new String[0]);
     }
 
     private Card toCard(Game game) {
-        final Card c = new Card(game.nextCardId(), game);
+        return toCard(game, game.nextCardId());
+    }
+
+    private Card toCard(Game game, int id) {
+        final Card c = new Card(id, game);
         c.setName(name);
         c.setImageKey(ImageKeys.getTokenKey(imageName));
 
         c.setColor(color.isEmpty() ? manaCost : color);
-        c.setToken(true);
+        c.setGamePieceType(GamePieceType.TOKEN);
 
         for (final String t : types) {
             c.addType(t);
@@ -138,11 +142,15 @@ public class TokenInfo {
     }
 
     public Card makeOneToken(final Player controller) {
+        return makeOneToken(controller, controller.getGame().nextCardId());
+    }
+
+    public Card makeOneToken(final Player controller, int id) {
         final Game game = controller.getGame();
-        final Card c = toCard(game);
+        final Card c = toCard(game, id);
 
         c.setOwner(controller);
-        c.setToken(true);
+        c.setGamePieceType(GamePieceType.TOKEN);
         CardFactoryUtil.setupKeywordedAbilities(c);
         // add them later to prevent setupKeywords from adding them multiple times
         for (final String kw : intrinsicKeywords) {
@@ -273,13 +281,18 @@ public class TokenInfo {
         final Card host = sa.getHostCard();
         final Game game = host.getGame();
 
-        String edition = ObjectUtils.firstNonNull(sa.getOriginalHost(), host).getSetCode();
+        Card editionHost = sa.getOriginalHost();
+        if (sa.getKeyword() != null && sa.getKeyword().getStatic() != null) {
+            editionHost = sa.getKeyword().getStatic().getHostCard();
+        }
+        String edition = ObjectUtils.firstNonNull(editionHost, host).getSetCode();
+        edition = ObjectUtils.firstNonNull(StaticData.instance().getCardEdition(edition).getTokenSet(script), edition);
         PaperToken token = StaticData.instance().getAllTokens().getToken(script, edition);
 
         if (token == null) {
             return null;
         }
-        final Card result = Card.fromPaperCard(token, owner, game);
+        final Card result = CardFactory.getCard(token, owner, game);
 
         if (sa.hasParam("TokenPower")) {
             String str = sa.getParam("TokenPower");

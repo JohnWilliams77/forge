@@ -17,17 +17,8 @@
  */
 package forge.game.cost;
 
-import java.io.Serializable;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-
-import forge.card.CardType;
-import org.apache.commons.lang3.ObjectUtils;
-import org.apache.commons.lang3.StringUtils;
-
 import com.google.common.collect.Lists;
-
+import forge.card.CardType;
 import forge.card.mana.ManaCost;
 import forge.card.mana.ManaCostParser;
 import forge.game.CardTraitBase;
@@ -40,6 +31,13 @@ import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
 import forge.util.Lang;
 import forge.util.TextUtil;
+import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * <p>
@@ -122,12 +120,7 @@ public class Cost implements Serializable {
         // Things that are pretty much happen at the end (Untap) 16+
         // Things that NEED to happen last 100+
 
-        Collections.sort(this.costParts, new Comparator<CostPart>() {
-            @Override
-            public int compare(CostPart o1, CostPart o2) {
-                return ObjectUtils.compare(o1.paymentOrder(), o2.paymentOrder());
-            }
-        });
+        this.costParts.sort((o1, o2) -> ObjectUtils.compare(o1.paymentOrder(), o2.paymentOrder()));
     }
 
     /**
@@ -227,7 +220,7 @@ public class Cost implements Serializable {
         this.isAbility = bAbility;
         // when adding new costs for cost string, place them here
 
-        boolean xCantBe0 = false;
+        String xMin = "";
         boolean untapCost = false;
 
         StringBuilder manaParts = new StringBuilder();
@@ -243,8 +236,8 @@ public class Cost implements Serializable {
 
         CostPartMana parsedMana = null;
         for (String part : parts) {
-            if ("XCantBe0".equals(part)) {
-                xCantBe0 = true;
+            if (part.startsWith("XMin")) {
+                xMin = (part);
             } else if ("Mandatory".equals(part)) {
                 this.isMandatory = true;
             } else {
@@ -263,8 +256,8 @@ public class Cost implements Serializable {
             }
         }
 
-        if (parsedMana == null && (manaParts.length() > 0 || xCantBe0)) {
-            parsedMana = new CostPartMana(new ManaCost(new ManaCostParser(manaParts.toString())), xCantBe0 ? "XCantBe0" : null);
+        if (parsedMana == null && (manaParts.length() > 0 || !xMin.isEmpty())) {
+            parsedMana = new CostPartMana(new ManaCost(new ManaCostParser(manaParts.toString())), xMin.isEmpty() ? null : xMin);
         }
         if (parsedMana != null) {
             costParts.add(parsedMana);
@@ -299,7 +292,7 @@ public class Cost implements Serializable {
             final String[] splitStr = abCostParse(parse, 5);
             final String type = splitStr.length > 2 ? splitStr[2] : "CARDNAME";
             final String description = splitStr.length > 3 ? splitStr[3] : null;
-            final ZoneType zone = splitStr.length > 4 ? ZoneType.smartValueOf(splitStr[4]) : ZoneType.Battlefield;
+            final List<ZoneType> zone = splitStr.length > 4 ? ZoneType.listValueOf(splitStr[4]) : Lists.newArrayList(ZoneType.Battlefield);
             boolean oneOrMore = false;
             if (splitStr[0].equals("X1+")) {
                 oneOrMore = true;
@@ -467,10 +460,27 @@ public class Cost implements Serializable {
             return new CostExile(splitStr[0], splitStr[1], description, ZoneType.Graveyard, 0);
         }
 
+        if (parse.startsWith("ExileCtrlOrGrave<")) {
+            final String[] splitStr = abCostParse(parse, 3);
+            final String description = splitStr.length > 2 ? splitStr[2] : null;
+            return new CostExile(splitStr[0], splitStr[1], description,
+                    new ArrayList<>(Arrays.asList(ZoneType.Battlefield, ZoneType.Graveyard)));
+        }
+
+        if (parse.startsWith("PromiseGift")) {
+            return new CostPromiseGift();
+        }
+
         if (parse.startsWith("Return<")) {
             final String[] splitStr = abCostParse(parse, 3);
             final String description = splitStr.length > 2 ? splitStr[2] : null;
             return new CostReturn(splitStr[0], splitStr[1], description);
+        }
+
+        if (parse.startsWith("ChooseCard<")) {
+            final String[] splitStr = abCostParse(parse, 3);
+            final String description = splitStr.length > 2 ? splitStr[2] : null;
+            return new CostReveal(splitStr[0], splitStr[1], description, "All");
         }
 
         if (parse.startsWith("Reveal<")) {
@@ -489,6 +499,12 @@ public class Cost implements Serializable {
             final String[] splitStr = abCostParse(parse, 3);
             final String description = splitStr.length > 2 ? splitStr[2] : null;
             return new CostReveal(splitStr[0], splitStr[1], description, "Hand,Battlefield");
+        }
+
+        if (parse.startsWith("Behold<")) {
+            final String[] splitStr = abCostParse(parse, 3);
+            final String description = splitStr.length > 2 ? splitStr[2] : null;
+            return new CostBehold(splitStr[0], splitStr[1], description);
         }
 
         if (parse.startsWith("ExiledMoveToGrave<")) {
@@ -538,8 +554,18 @@ public class Cost implements Serializable {
             return new CostEnlist(splitStr[0], splitStr[1], description);
         }
 
-        if (parse.equals("RevealChosenPlayer")) {
-            return new CostRevealChosenPlayer();
+        if (parse.startsWith("CollectEvidence<")) {
+            final String[] splitStr = abCostParse(parse, 1);
+            return new CostCollectEvidence(splitStr[0]);
+        }
+
+        if (parse.startsWith("RevealChosen<")) {
+            final String[] splitStr = abCostParse(parse, 2);
+            return new CostRevealChosen(splitStr[0], splitStr.length > 1 ? splitStr[1] : null);
+        }
+
+        if (parse.equals("Forage")) {
+            return new CostForage();
         }
 
         // These won't show up with multiples
@@ -624,8 +650,7 @@ public class Cost implements Serializable {
      * refundPaidCost.
      * </p>
      *
-     * @param source
-     *            a {@link forge.game.card.Card} object.
+     * @param source a {@link Card} object.
      */
     public final void refundPaidCost(final Card source) {
         // prereq: isUndoable is called first
@@ -844,7 +869,7 @@ public class Cost implements Serializable {
             return Cost.convertAmountTypeToWords(amount, type);
         }
 
-        return Cost.convertIntAndTypeToWords(i.intValue(), type);
+        return Cost.convertIntAndTypeToWords(i, type);
     }
 
     /**
@@ -927,28 +952,23 @@ public class Cost implements Serializable {
     public Cost add(Cost cost1, boolean mergeAdditional) {
         return add(cost1, mergeAdditional, null);
     }
-    public Cost add(Cost cost1, boolean mergeAdditional, final SpellAbility sa) {
-        CostPartMana costPart2 = this.getCostMana();
+    public Cost add(Cost cost, boolean mergeAdditional, final SpellAbility sa) {
+        CostPartMana mPartOld = this.getCostMana();
         List<CostPart> toRemove = Lists.newArrayList();
-        for (final CostPart part : cost1.getCostParts()) {
+        for (final CostPart part : cost.getCostParts()) {
             if (part instanceof CostPartMana && ((CostPartMana) part).getMana().isZero()) {
                 continue; // do not add Zero Mana
-            } else if (part instanceof CostPartMana && costPart2 != null) {
+            } else if (part instanceof CostPartMana && mPartOld != null) {
                 CostPartMana mPart = (CostPartMana) part;
-                ManaCostBeingPaid oldManaCost = new ManaCostBeingPaid(mPart.getMana());
-                oldManaCost.addManaCost(costPart2.getMana());
-                String r2 = costPart2.getRestriction();
-                String r1 = mPart.getRestriction();
-                String r = r1 == null ? r2 : ( r2 == null ? r1 : r1 + "." + r2);
-                costParts.remove(costPart2);
-                boolean XCantBe0 = !mPart.canXbe0() || !costPart2.canXbe0();
-                if (r == null && (mPart.isExiledCreatureCost() || mPart.isEnchantedCreatureCost() || XCantBe0)) {
-                    // FIXME: something was amiss when trying to add the cost since the mana cost is either \EnchantedCost or \Exiled but the
-                    // restriction no longer marks it as such. Therefore, we need to explicitly copy the ExiledCreatureCost/EnchantedCreatureCost
-                    // to make cards like Merseine or Back from the Brink work.
-                    costParts.add(0, new CostPartMana(oldManaCost.toManaCost(), r, mPart.isExiledCreatureCost(), mPart.isEnchantedCreatureCost(), XCantBe0));
+                ManaCostBeingPaid manaCost = new ManaCostBeingPaid(mPart.getMana());
+                costParts.remove(mPartOld);
+                int xMin = Math.max(mPart.getXMin(), mPartOld.getXMin());
+                manaCost.addManaCost(mPartOld.getMana());
+                if (mPartOld.isExiledCreatureCost() || mPartOld.isEnchantedCreatureCost() || xMin > 0) {
+                    // need to explicitly copy the ExiledCreatureCost/EnchantedCreatureCost
+                    costParts.add(0, new CostPartMana(manaCost.toManaCost(), mPartOld.isExiledCreatureCost(), mPartOld.isEnchantedCreatureCost(), xMin));
                 } else {
-                    costParts.add(0, new CostPartMana(oldManaCost.toManaCost(), r));
+                    costParts.add(0, new CostPartMana(manaCost.toManaCost(), null));
                 }
             } else if (part instanceof CostPutCounter || (mergeAdditional && // below usually not desired because they're from different causes
                     (part instanceof CostDiscard || part instanceof CostDraw ||
@@ -976,7 +996,7 @@ public class Cost implements Serializable {
                                 if (counters < 0) {
                                     costParts.add(new CostPutCounter(String.valueOf(counters *-1), CounterType.get(CounterEnumType.LOYALTY), part.getType(), part.getTypeDescription()));
                                 } else {
-                                    costParts.add(new CostRemoveCounter(String.valueOf(counters), CounterType.get(CounterEnumType.LOYALTY), part.getType(), part.getTypeDescription(), ZoneType.Battlefield, false));
+                                    costParts.add(new CostRemoveCounter(String.valueOf(counters), CounterType.get(CounterEnumType.LOYALTY), part.getType(), part.getTypeDescription(), Lists.newArrayList(ZoneType.Battlefield) , false));
                                 }
                             } else {
                                 continue;
@@ -1020,9 +1040,6 @@ public class Cost implements Serializable {
         }
     }
 
-    public boolean canPay(SpellAbility sa, final boolean effect) {
-        return canPay(sa, sa.getActivatingPlayer(), effect);
-    }
     public boolean canPay(SpellAbility sa, Player payer, final boolean effect) {
         for (final CostPart part : this.getCostParts()) {
             if (!part.canPay(sa, payer, effect)) {
@@ -1059,7 +1076,7 @@ public class Cost implements Serializable {
             val = ObjectUtils.min(val, p.getMaxAmountX(ability, payer, effect));
         }
         // extra 0 check
-        if (val != null && val <= 0 && hasManaCost() && !getCostMana().canXbe0()) {
+        if (val != null && val <= 0 && hasManaCost() && getCostMana().getXMin() > 0) {
             val = null;
         }
         return val;

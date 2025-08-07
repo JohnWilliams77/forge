@@ -1,6 +1,7 @@
 package forge.adventure.character;
 
 import com.badlogic.gdx.math.Vector2;
+import forge.Forge;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.scene.Scene;
 import forge.adventure.stage.GameStage;
@@ -39,8 +40,12 @@ public class PlayerSprite extends CharacterSprite {
     }
 
     public void storePos() {
-        AdventurePlayer.current().setWorldPosX(getX());
-        AdventurePlayer.current().setWorldPosY(getY());
+        storePos(getX(), getY());
+    }
+
+    public void storePos(final float x, final float y) {
+        AdventurePlayer.current().setWorldPosX(x);
+        AdventurePlayer.current().setWorldPosY(y);
     }
 
     public Vector2 getMovementDirection() {
@@ -58,6 +63,8 @@ public class PlayerSprite extends CharacterSprite {
     @Override
     public void act(float delta) {
         super.act(delta);
+        if (Forge.advFreezePlayerControls)
+            return;
         direction.setLength(playerSpeed * delta * playerSpeedModifier*playerSpeedEquipmentModifier);
         Vector2 previousDirection = getMovementDirection().cpy();
         Scene previousScene = forge.Forge.getCurrentScene();

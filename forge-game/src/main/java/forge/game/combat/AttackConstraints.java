@@ -7,18 +7,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.function.Predicate;
 
+import com.google.common.collect.*;
+import forge.util.IterableUtil;
 import org.apache.commons.lang3.tuple.Pair;
 
-import com.google.common.base.Function;
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
-import com.google.common.collect.Collections2;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.common.primitives.Ints;
 
 import forge.game.Game;
@@ -75,7 +69,7 @@ public class AttackConstraints {
             final MapToAmount<Card> causesToAttack = new LinkedHashMapToAmount<>();
             for (final Entry<Card, Integer> entry : attacksIfOtherAttacks.entrySet()) {
                 if (entry.getKey() != possibleAttacker) {
-                    causesToAttack.add(entry.getKey(), entry.getValue().intValue());
+                    causesToAttack.add(entry.getKey(), entry.getValue());
                 }
             }
 
@@ -121,7 +115,7 @@ public class AttackConstraints {
         final int globalMax = globalRestrictions.getMax();
         final int myMax = Ints.min(globalMax == -1 ? Integer.MAX_VALUE : globalMax, possibleAttackers.size());
         if (myMax == 0) {
-            return Pair.of(Collections.emptyMap(), Integer.valueOf(0));
+            return Pair.of(Collections.emptyMap(), 0);
         }
 
         final MapToAmount<Map<Card, GameEntity>> possible = new LinkedHashMapToAmount<>();
@@ -151,11 +145,11 @@ public class AttackConstraints {
         for (final Card attacker : myPossibleAttackers) {
             final Set<AttackRestrictionType> types = restrictions.get(attacker).getTypes();
             if (types.contains(AttackRestrictionType.NEED_BLACK_OR_GREEN)) {
-                if (!Iterables.any(myPossibleAttackers, AttackRestrictionType.NEED_BLACK_OR_GREEN.getPredicate(attacker))) {
+                if (!myPossibleAttackers.anyMatch(AttackRestrictionType.NEED_BLACK_OR_GREEN.getPredicate(attacker))) {
                     attackersToRemove.add(attacker);
                 }
             } else if (types.contains(AttackRestrictionType.NEED_GREATER_POWER)) {
-                if (!Iterables.any(myPossibleAttackers, AttackRestrictionType.NEED_GREATER_POWER.getPredicate(attacker))) {
+                if (!myPossibleAttackers.anyMatch(AttackRestrictionType.NEED_GREATER_POWER.getPredicate(attacker))) {
                     attackersToRemove.add(attacker);
                 }
             }
@@ -185,7 +179,7 @@ public class AttackConstraints {
 
         // Now try all others (plus empty attack) and count their violations
         final FCollection<Map<Card, GameEntity>> legalAttackers = collectLegalAttackers(reqs, myMax);
-        possible.putAll(Maps.asMap(legalAttackers.asSet(), FN_COUNT_VIOLATIONS));
+        possible.putAll(Maps.asMap(legalAttackers.asSet(), this::countViolations));
         int empty = countViolations(Collections.emptyMap());
         if (empty != -1) {
             possible.put(Collections.emptyMap(), empty);
@@ -195,11 +189,11 @@ public class AttackConstraints {
         return MapToAmountUtil.min(possible);
     }
 
-    private final FCollection<Map<Card, GameEntity>> collectLegalAttackers(final List<Attack> reqs, final int maximum) {
+    private FCollection<Map<Card, GameEntity>> collectLegalAttackers(final List<Attack> reqs, final int maximum) {
         return new FCollection<>
                 (collectLegalAttackers(Collections.emptyMap(), deepClone(reqs), new CardCollection(), maximum));
     }
-    private final List<Map<Card, GameEntity>> collectLegalAttackers(final Map<Card, GameEntity> attackers, final List<Attack> reqs, final CardCollection reserved, final int maximum) {
+    private List<Map<Card, GameEntity>> collectLegalAttackers(final Map<Card, GameEntity> attackers, final List<Attack> reqs, final CardCollection reserved, final int maximum) {
         final List<Map<Card, GameEntity>> result = Lists.newLinkedList();
 
         int localMaximum = maximum;
@@ -224,7 +218,7 @@ public class AttackConstraints {
                 }
             }
             final Integer defMax = globalRestrictions.getDefenderMax().get(req.defender);
-            if (defMax != null && toDefender.count(req.defender) >= defMax.intValue()) {
+            if (defMax != null && toDefender.count(req.defender) >= defMax) {
                 // too many to this defender already
                 skip = true;
             } else if (null != CombatUtil.getAttackCost(req.attacker.getGame(), req.attacker, req.defender)) {
@@ -254,7 +248,7 @@ public class AttackConstraints {
                 final List<Attack> clonedReqs = deepClone(reqs);
                 for (final Entry<Card, Integer> causesToAttack : requirement.getCausesToAttack().entrySet()) {
                     for (final Attack a : findAll(reqs, causesToAttack.getKey())) {
-                        a.requirements += causesToAttack.getValue().intValue();
+                        a.requirements += causesToAttack.getValue();
                     }
                 }
                 // if maximum < no of possible attackers, try both with and without this creature
@@ -268,7 +262,7 @@ public class AttackConstraints {
             }
 
             for (final Predicate<Card> predicateRestriction : predicateRestrictions) {
-                if (Iterables.any(Sets.union(myAttackers.keySet(), reserved.asSet()), predicateRestriction)) {
+                if (Sets.union(myAttackers.keySet(), reserved.asSet()).stream().anyMatch(predicateRestriction)) {
                     // predicate fulfilled already, ignore!
                     continue;
                 }
@@ -341,9 +335,9 @@ public class AttackConstraints {
         }
     }
 
-    private final List<Attack> getSortedFilteredRequirements() {
+    private List<Attack> getSortedFilteredRequirements() {
         final List<Attack> result = Lists.newArrayList();
-        final Map<Card, List<Pair<GameEntity, Integer>>> sortedRequirements = Maps.transformValues(requirements, AttackRequirement.SORT);
+        final Map<Card, List<Pair<GameEntity, Integer>>> sortedRequirements = Maps.transformValues(requirements, AttackRequirement::getSortedRequirements);
         for (final Entry<Card, List<Pair<GameEntity, Integer>>> reqList : sortedRequirements.entrySet()) {
             final AttackRestriction restriction = restrictions.get(reqList.getKey());
             final List<Pair<GameEntity, Integer>> list = reqList.getValue();
@@ -362,10 +356,9 @@ public class AttackConstraints {
         MapToAmount<GameEntity> sortedPlayerReqs = new LinkedHashMapToAmount<>();
         sortedPlayerReqs.addAll(Iterables.concat(playerReqs));
         while (!sortedPlayerReqs.isEmpty()) {
-            sortedPlayerReqs.keySet().removeAll(excludedDefenders);
             Pair<GameEntity, Integer> playerReq = MapToAmountUtil.max(sortedPlayerReqs);
             // find best attack to also fulfill the additional requirements
-            Attack bestMatch = Iterables.getLast(Iterables.filter(result, att -> !usedAttackers.contains(att.attacker) && att.defender.equals(playerReq.getLeft())), null);
+            Attack bestMatch = Iterables.getLast(IterableUtil.filter(result, att -> !usedAttackers.contains(att.attacker) && att.defender.equals(playerReq.getLeft())), null);
             if (bestMatch != null) {
                 bestMatch.requirements += playerReq.getRight();
                 usedAttackers.add(bestMatch.attacker);
@@ -376,6 +369,7 @@ public class AttackConstraints {
             } else {
                 excludedDefenders.add(playerReq.getLeft());
             }
+            sortedPlayerReqs.keySet().removeAll(excludedDefenders);
         }
         if (!usedAttackers.isEmpty()) {
             // order could have changed
@@ -393,22 +387,17 @@ public class AttackConstraints {
     }
     private static Attack findFirst(final List<Attack> reqs, final Predicate<Card> predicate) {
         for (final Attack req : reqs) {
-            if (predicate.apply(req.attacker)) {
+            if (predicate.test(req.attacker)) {
                 return req;
             }
         }
         return null;
     }
     private static Attack findFirst(final List<Attack> reqs, final Card attacker) {
-        return findFirst(reqs, Predicates.equalTo(attacker));
+        return findFirst(reqs, attacker::equals);
     }
     private static Collection<Attack> findAll(final List<Attack> reqs, final Card attacker) {
-        return Collections2.filter(reqs, new Predicate<Attack>() {
-            @Override
-            public boolean apply(final Attack input) {
-                return input.attacker.equals(attacker);
-            }
-        });
+        return Collections2.filter(reqs, input -> input.attacker.equals(attacker));
     }
 
     /**
@@ -446,10 +435,4 @@ public class AttackConstraints {
 
         return violations;
     }
-    private final Function<Map<Card, GameEntity>, Integer> FN_COUNT_VIOLATIONS = new Function<Map<Card,GameEntity>, Integer>() {
-        @Override
-        public Integer apply(final Map<Card, GameEntity> input) {
-            return Integer.valueOf(countViolations(input));
-        }
-    };
 }

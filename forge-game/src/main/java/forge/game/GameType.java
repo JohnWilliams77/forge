@@ -2,9 +2,9 @@ package forge.game;
 
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.function.Function;
 
 import com.google.common.base.Enums;
-import com.google.common.base.Function;
 
 import forge.StaticData;
 import forge.deck.CardPool;
@@ -22,7 +22,7 @@ public enum GameType {
     Winston             (DeckFormat.Limited, true, true, true, "lblWinston", ""),
     Gauntlet            (DeckFormat.Constructed, false, true, true, "lblGauntlet", ""),
     Tournament          (DeckFormat.Constructed, false, true, true, "lblTournament", ""),
-    CommanderGauntlet   (DeckFormat.Commander, false, false, false, "lblCommander", "lblCommanderDesc"),
+    CommanderGauntlet   (DeckFormat.Commander, false, false, false, "lblCommanderGauntlet", "lblCommanderDesc"),
     Quest               (DeckFormat.QuestDeck, true, true, false, "lblQuest", ""),
     QuestDraft          (DeckFormat.Limited, true, true, true, "lblQuestDraft", ""),
     PlanarConquest      (DeckFormat.PlanarConquest, true, false, false, "lblPlanarConquest", ""),
@@ -40,41 +40,35 @@ public enum GameType {
     Planechase          (DeckFormat.Planechase, false, false, true, "lblPlanechase", "lblPlanechaseDesc"),
     Archenemy           (DeckFormat.Archenemy, false, false, true, "lblArchenemy", "lblArchenemyDesc"),
     ArchenemyRumble     (DeckFormat.Archenemy, false, false, true, "lblArchenemyRumble", "lblArchenemyRumbleDesc"),
-    MomirBasic          (DeckFormat.Constructed, false, false, false, "lblMomirBasic", "lblMomirBasicDesc", new Function<RegisteredPlayer, Deck>() {
-        @Override
-        public Deck apply(RegisteredPlayer player) {
-            Deck deck = new Deck();
-            CardPool mainDeck = deck.getMain();
-            String setcode = Aggregates.random(StaticData.instance().getBlockLands());
-            mainDeck.add("Plains", setcode, 12, true);
-            mainDeck.add("Island", setcode, 12, true);
-            mainDeck.add("Swamp", setcode, 12, true);
-            mainDeck.add("Mountain", setcode, 12, true);
-            mainDeck.add("Forest", setcode, 12, true);
-            deck.getOrCreate(DeckSection.Avatar).add(StaticData.instance().getVariantCards()
-                    .getCard("Momir Vig, Simic Visionary Avatar"), 1);
-            return deck;
-        }
+    MomirBasic          (DeckFormat.Constructed, false, false, false, "lblMomirBasic", "lblMomirBasicDesc", player -> {
+        Deck deck = new Deck();
+        CardPool mainDeck = deck.getMain();
+        String setcode = Aggregates.random(StaticData.instance().getBlockLands());
+        mainDeck.add("Plains", setcode, 12, true);
+        mainDeck.add("Island", setcode, 12, true);
+        mainDeck.add("Swamp", setcode, 12, true);
+        mainDeck.add("Mountain", setcode, 12, true);
+        mainDeck.add("Forest", setcode, 12, true);
+        deck.getOrCreate(DeckSection.Avatar).add(StaticData.instance().getVariantCards()
+                .getCard("Momir Vig, Simic Visionary Avatar"), 1);
+        return deck;
     }),
-    MoJhoSto      (DeckFormat.Constructed, false, false, false, "lblMoJhoSto", "lblMoJhoStoDesc", new Function<RegisteredPlayer, Deck>() {
-        @Override
-        public Deck apply(RegisteredPlayer player) {
-            Deck deck = new Deck();
-            CardPool mainDeck = deck.getMain();
-            String setcode = Aggregates.random(StaticData.instance().getBlockLands());
-            mainDeck.add("Plains", setcode, 12, true);
-            mainDeck.add("Island", setcode, 12, true);
-            mainDeck.add("Swamp", setcode, 12, true);
-            mainDeck.add("Mountain", setcode, 12, true);
-            mainDeck.add("Forest", setcode, 12, true);
-            deck.getOrCreate(DeckSection.Avatar).add(StaticData.instance().getVariantCards()
-                    .getCard("Momir Vig, Simic Visionary Avatar"), 1);
-            deck.getOrCreate(DeckSection.Avatar).add(StaticData.instance().getVariantCards()
-                    .getCard("Jhoira of the Ghitu Avatar"), 1);
-            deck.getOrCreate(DeckSection.Avatar).add(StaticData.instance().getVariantCards()
-                    .getCard("Stonehewer Giant Avatar"), 1);
-            return deck;
-        }
+    MoJhoSto      (DeckFormat.Constructed, false, false, false, "lblMoJhoSto", "lblMoJhoStoDesc", player -> {
+        Deck deck = new Deck();
+        CardPool mainDeck = deck.getMain();
+        String setcode = Aggregates.random(StaticData.instance().getBlockLands());
+        mainDeck.add("Plains", setcode, 12, true);
+        mainDeck.add("Island", setcode, 12, true);
+        mainDeck.add("Swamp", setcode, 12, true);
+        mainDeck.add("Mountain", setcode, 12, true);
+        mainDeck.add("Forest", setcode, 12, true);
+        deck.getOrCreate(DeckSection.Avatar).add(StaticData.instance().getVariantCards()
+                .getCard("Momir Vig, Simic Visionary Avatar"), 1);
+        deck.getOrCreate(DeckSection.Avatar).add(StaticData.instance().getVariantCards()
+                .getCard("Jhoira of the Ghitu Avatar"), 1);
+        deck.getOrCreate(DeckSection.Avatar).add(StaticData.instance().getVariantCards()
+                .getCard("Stonehewer Giant Avatar"), 1);
+        return deck;
     });
 
     private final DeckFormat deckFormat;
@@ -83,7 +77,6 @@ public enum GameType {
     private final Function<RegisteredPlayer, Deck> deckAutoGenerator;
 
     GameType(DeckFormat deckFormat0, boolean isCardPoolLimited0, boolean canSideboard0, boolean addWonCardsMidgame0, String name0, String description0) {
-
         this(deckFormat0, isCardPoolLimited0, canSideboard0, addWonCardsMidgame0, name0, description0, null);
     }
     GameType(DeckFormat deckFormat0, boolean isCardPoolLimited0, boolean canSideboard0, boolean addWonCardsMidgame0, String name0, String description0, Function<RegisteredPlayer, Deck> deckAutoGenerator0) {

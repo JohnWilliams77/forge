@@ -4,21 +4,27 @@ public enum AlternativeCost {
     Awaken,
     Bestow,
     Blitz,
-    Cycling, // ActivatedAbility
     Dash,
     Disturb,
     Emerge,
     Escape,
     Evoke,
     Flashback,
+    Harmonize,
     Foretold,
+    Freerunning,
+    Impending,
     Madness,
+    Mayhem,
     MTMtE, // More Than Meets the Eye (Transformers Universes Beyond)
     Mutate,
-    Offering,
-    Outlast, // ActivatedAbility
+    Overload,
     Prowl,
+    Plotted,
     Spectacle,
-    Surge;
+    Surge,
+    Warp,
+    WebSlinging
+    ;
 
 }

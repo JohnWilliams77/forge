@@ -17,26 +17,23 @@
  */
 package forge.game.cost;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.tuple.Pair;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import forge.card.MagicColor;
 import forge.card.mana.ManaCostShard;
 import forge.game.Game;
+import forge.game.ability.AbilityKey;
 import forge.game.card.Card;
-import forge.game.mana.Mana;
-import forge.game.mana.ManaConversionMatrix;
-import forge.game.mana.ManaCostBeingPaid;
-import forge.game.mana.ManaPool;
+import forge.game.card.CardCollection;
+import forge.game.card.CardZoneTable;
+import forge.game.mana.*;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
+import org.apache.commons.lang3.tuple.Pair;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * <p>
@@ -95,13 +92,16 @@ public class CostPayment extends ManaConversionMatrix {
      *            a {@link forge.game.spellability.SpellAbility} object.
      * @return a boolean.
      */
-    public static boolean canPayAdditionalCosts(Cost cost, final SpellAbility ability) {
+    public static boolean canPayAdditionalCosts(Cost cost, final SpellAbility ability, final boolean effect) {
+        return canPayAdditionalCosts(cost, ability, effect, ability.getActivatingPlayer());
+    }
+    public static boolean canPayAdditionalCosts(Cost cost, final SpellAbility ability, final boolean effect, final Player payer) {
         if (cost == null) {
             return true;
         }
 
-        cost = CostAdjustment.adjust(cost, ability);
-        return cost.canPay(ability, false);
+        cost = CostAdjustment.adjust(cost, ability, effect);
+        return cost.canPay(ability, payer, effect);
     }
 
     /**
@@ -112,13 +112,7 @@ public class CostPayment extends ManaConversionMatrix {
      * @return a boolean.
      */
     public final boolean isFullyPaid() {
-        for (final CostPart part : adjustedCost.getCostParts()) {
-            if (!this.paidCostParts.contains(part)) {
-                return false;
-            }
-        }
-
-        return true;
+        return paidCostParts.containsAll(adjustedCost.getCostParts());
     }
 
     /**
@@ -134,13 +128,17 @@ public class CostPayment extends ManaConversionMatrix {
             }
         }
 
-        // Move this to CostMana
-        this.ability.getActivatingPlayer().getManaPool().refundManaPaid(this.ability);
+        new ManaRefundService(this.ability).refundManaPaid();
     }
 
     public boolean payCost(final CostDecisionMakerBase decisionMaker) {
-        adjustedCost = CostAdjustment.adjust(cost, ability);
-        final List<CostPart> costParts = adjustedCost.getCostPartsWithZeroMana();
+        adjustedCost = CostAdjustment.adjust(cost, ability, decisionMaker.isEffect());
+        List<CostPart> costParts = adjustedCost.getCostPartsWithZeroMana();
+
+        if (adjustedCost.getCostParts().size() > 1) {
+            // if mana part is shown here it wouldn't include reductions, but that's just a minor inconvenience
+            costParts = decisionMaker.getPlayer().getController().orderCosts(costParts);
+        }
 
         final Game game = decisionMaker.getPlayer().getGame();
 
@@ -151,22 +149,15 @@ public class CostPayment extends ManaConversionMatrix {
             PaymentDecision pd = part.accept(decisionMaker);
 
             // Right before we start paying as decided, we need to transfer the CostPayments matrix over?
-            if (part instanceof CostPartMana) {
-                ((CostPartMana)part).setCardMatrix(this);
+            if (pd != null) {
+                pd.matrix = this;
             }
 
             if (pd == null || !part.payAsDecided(decisionMaker.getPlayer(), pd, ability, decisionMaker.isEffect())) {
-                if (part instanceof CostPartMana) {
-                    ((CostPartMana)part).setCardMatrix(null);
-                }
                 game.costPaymentStack.pop(); // cost is resolved
                 return false;
             }
             this.paidCostParts.add(part);
-
-            if (part instanceof CostPartMana) {
-                ((CostPartMana)part).setCardMatrix(null);
-            }
             game.costPaymentStack.pop(); // cost is resolved
         }
 
@@ -189,7 +180,7 @@ public class CostPayment extends ManaConversionMatrix {
 
         Map<CostPart, PaymentDecision> decisions = Maps.newHashMap();
         // for Trinisphere make sure to include Zero
-        List<CostPart> parts = CostAdjustment.adjust(cost, ability).getCostPartsWithZeroMana();
+        List<CostPart> parts = CostAdjustment.adjust(cost, ability, decisionMaker.isEffect()).getCostPartsWithZeroMana();
 
         // Set all of the decisions before attempting to pay anything
 
@@ -238,9 +229,9 @@ public class CostPayment extends ManaConversionMatrix {
      * @return a {@link forge.game.mana.Mana} object.
      */
     public static Mana getMana(final Player player, final ManaCostShard shard, final SpellAbility saBeingPaidFor,
-            String restriction, final byte colorsPaid, Map<String, Integer> xManaCostPaidByColor) {
+            final byte colorsPaid, Map<String, Integer> xManaCostPaidByColor) {
         final List<Pair<Mana, Integer>> weightedOptions = selectManaToPayFor(player.getManaPool(), shard,
-            saBeingPaidFor, restriction, colorsPaid, xManaCostPaidByColor);
+            saBeingPaidFor, colorsPaid, xManaCostPaidByColor);
 
         // Exclude border case
         if (weightedOptions.isEmpty()) {
@@ -289,9 +280,9 @@ public class CostPayment extends ManaConversionMatrix {
     }
 
     private static List<Pair<Mana, Integer>> selectManaToPayFor(final ManaPool manapool, final ManaCostShard shard,
-            final SpellAbility saBeingPaidFor, String restriction, final byte colorsPaid, Map<String, Integer> xManaCostPaidByColor) {
+            final SpellAbility saBeingPaidFor, final byte colorsPaid, Map<String, Integer> xManaCostPaidByColor) {
         final List<Pair<Mana, Integer>> weightedOptions = new ArrayList<>();
-        for (final Mana thisMana : manapool) {
+        for (final Mana thisMana : Lists.newArrayList(manapool)) {
             if (shard == ManaCostShard.COLORED_X && !ManaCostBeingPaid.canColoredXShardBePaidByColor(MagicColor.toShortString(thisMana.getColor()), xManaCostPaidByColor)) {
                 continue;
             }
@@ -308,7 +299,7 @@ public class CostPayment extends ManaConversionMatrix {
                 continue;
             }
 
-            if (StringUtils.isNotBlank(restriction) && !thisMana.getSourceCard().isValid(restriction, null, null, null)) {
+            if (!saBeingPaidFor.allowsPayingWithShard(thisMana.getSourceCard(), thisMana.getColor())) {
                 continue;
             }
 
@@ -336,22 +327,40 @@ public class CostPayment extends ManaConversionMatrix {
         return weightedOptions;
     }
 
-    public static void handleOfferings(final SpellAbility sa, boolean test, boolean costIsPaid) {
-        if (sa.isOffering() && sa.getSacrificedAsOffering() != null) {
+    public static boolean handleOfferings(final SpellAbility sa, boolean test, boolean costIsPaid) {
+        final Game game = sa.getHostCard().getGame();
+        final CardZoneTable table = new CardZoneTable(game.getLastStateBattlefield(), game.getLastStateGraveyard());
+        Map<AbilityKey, Object> params = AbilityKey.newMap();
+        AbilityKey.addCardZoneTableParams(params, table);
+
+        if (sa.isOffering()) {
+            if (sa.getSacrificedAsOffering() == null) {
+                return false;
+            }
             final Card offering = sa.getSacrificedAsOffering();
             offering.setUsedToPay(false);
-            if (costIsPaid && !test) {
-                sa.getHostCard().getGame().getAction().sacrifice(offering, sa, false, null, null);
+            if (test) {
+                sa.resetSacrificedAsOffering();
+            } else if (costIsPaid) {
+                game.getAction().sacrifice(new CardCollection(offering), sa, false, params);
             }
-            sa.resetSacrificedAsOffering();
         }
-        if (sa.isEmerge() && sa.getSacrificedAsEmerge() != null) {
+        if (sa.isEmerge()) {
+            if (sa.getSacrificedAsEmerge() == null) {
+                return false;
+            }
             final Card emerge = sa.getSacrificedAsEmerge();
             emerge.setUsedToPay(false);
-            if (costIsPaid && !test) {
-                sa.getHostCard().getGame().getAction().sacrifice(emerge, sa, false, null, null);
+            if (test) {
+                sa.resetSacrificedAsEmerge();
+            } else if (costIsPaid) {
+                game.getAction().sacrifice(new CardCollection(emerge), sa, false, params);
+                sa.setSacrificedAsEmerge(game.getChangeZoneLKIInfo(emerge));
             }
-            sa.resetSacrificedAsEmerge();
         }
+        if (!table.isEmpty()) {
+            table.triggerChangesZoneAll(sa.getHostCard().getGame(), sa);
+        }
+        return true;
     }
 }

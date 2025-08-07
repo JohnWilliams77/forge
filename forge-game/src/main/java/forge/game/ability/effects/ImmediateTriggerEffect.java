@@ -34,14 +34,17 @@ public class ImmediateTriggerEffect extends SpellAbilityEffect {
     public void resolve(SpellAbility sa) {
         final Card host = sa.getHostCard();
         final Game game = host.getGame();
+        int amt = AbilityUtils.calculateAmount(host, sa.getParamOrDefault("TriggerAmount", "1"), sa);
+        if (amt <= 0) {
+            return;
+        }
         Map<String, String> mapParams = Maps.newHashMap(sa.getMapParams());
 
-        mapParams.remove("Cost");
-
-        if (mapParams.containsKey("SpellDescription")) {
+        if (mapParams.containsKey("SpellDescription") && !mapParams.containsKey("TriggerDescription")) {
             mapParams.put("TriggerDescription", mapParams.get("SpellDescription"));
-            mapParams.remove("SpellDescription");
         }
+        mapParams.remove("SpellDescription");
+        mapParams.remove("Cost");
 
         mapParams.put("Mode", TriggerType.Immediate.name());
 
@@ -69,11 +72,12 @@ public class ImmediateTriggerEffect extends SpellAbilityEffect {
             if (overridingSA instanceof AbilitySub) {
                 ((AbilitySub)overridingSA).setParent(null);
             }
-
             immediateTrig.setOverridingAbility(overridingSA);
         }
 
-        // Instead of registering this, add to the delayed triggers as an immediate trigger type? Which means it'll fire as soon as possible
-        game.getTriggerHandler().registerDelayedTrigger(immediateTrig);
+        for (int i = 0; i < amt; i++) {
+            // Instead of registering this, add to the delayed triggers as an immediate trigger type? Which means it'll fire as soon as possible
+            game.getTriggerHandler().registerDelayedTrigger(immediateTrig);
+        }
     }
 }

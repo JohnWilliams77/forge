@@ -17,15 +17,15 @@
  */
 package forge.game;
 
-import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
 
-import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import forge.game.card.Card;
 import forge.game.staticability.StaticAbility;
+import forge.game.staticability.StaticAbilityLayer;
 
 /**
  * <p>
@@ -39,25 +39,13 @@ public class StaticEffects {
 
     // **************** StaticAbility system **************************
     private final Map<StaticAbility, StaticEffect> staticEffects = Maps.newHashMap();
-    //Global rule changes
-    private final Set<GlobalRuleChange> ruleChanges = EnumSet.noneOf(GlobalRuleChange.class);
 
     public final void clearStaticEffects(final Set<Card> affectedCards) {
-        ruleChanges.clear();
-
         // remove all static effects
         for (final StaticEffect se : staticEffects.values()) {
-            Iterables.addAll(affectedCards, se.remove());
+            se.remove().forEach(affectedCards::add);
         }
         this.staticEffects.clear();
-    }
-
-    public void setGlobalRuleChange(final GlobalRuleChange change) {
-        this.ruleChanges.add(change);
-    }
-
-    public boolean getGlobalRuleChange(final GlobalRuleChange change) {
-        return this.ruleChanges.contains(change);
     }
 
     /**
@@ -81,12 +69,17 @@ public class StaticEffects {
         return staticEffects.values();
     }
 
-    public boolean removeStaticEffect(final StaticAbility staticAbility) {
-        final StaticEffect currentEffect = staticEffects.remove(staticAbility);
+    public boolean removeStaticEffect(final StaticAbility staticAbility, final StaticAbilityLayer layer, final boolean removeFull) {
+        final StaticEffect currentEffect;
+        if (removeFull) {
+            currentEffect = staticEffects.remove(staticAbility);
+        } else {
+            currentEffect = staticEffects.get(staticAbility);
+        }
         if (currentEffect == null) {
             return false;
         }
-        currentEffect.remove();
+        currentEffect.remove(Lists.newArrayList(layer));
         return true;
     }
 }

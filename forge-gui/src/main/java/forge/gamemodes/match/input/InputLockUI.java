@@ -1,8 +1,5 @@
 package forge.gamemodes.match.input;
 
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import forge.game.card.Card;
 import forge.game.player.Player;
 import forge.game.player.PlayerView;
@@ -10,7 +7,11 @@ import forge.game.spellability.SpellAbility;
 import forge.gui.FThreads;
 import forge.player.PlayerControllerHuman;
 import forge.util.ITriggerEvent;
+import forge.util.Localizer;
 import forge.util.ThreadUtil;
+
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class InputLockUI implements Input {
     private final AtomicInteger iCall = new AtomicInteger();
@@ -58,7 +59,7 @@ public class InputLockUI implements Input {
         @Override
         public void run() {
             controller.getGui().updateButtons(InputLockUI.this.getOwner(), "", "", false, false, false);
-            showMessage("Waiting for actions...");
+            showMessage(Localizer.getInstance().getMessage("lblWaitingforActions"));
         }
     };
 

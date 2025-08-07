@@ -1,11 +1,6 @@
 package forge.screens.deckeditor.controllers;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import forge.deck.DeckBase;
 import forge.gui.UiCommand;
@@ -39,12 +34,7 @@ public enum CProbabilities implements ICDoc {
     @Override
     @SuppressWarnings("serial")
     public void initialize() {
-        VProbabilities.SINGLETON_INSTANCE.getLblReshuffle().setCommand(new UiCommand() {
-            @Override
-            public void run() {
-                update();
-            }
-        });
+        VProbabilities.SINGLETON_INSTANCE.getLblReshuffle().setCommand((UiCommand) this::update);
     }
 
     /* (non-Javadoc)

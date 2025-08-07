@@ -17,28 +17,21 @@
  */
 package forge.game.mana;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-
-import org.apache.commons.lang3.StringUtils;
-
-import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import forge.card.ColorSet;
 import forge.card.MagicColor;
 import forge.card.mana.IParserManaCost;
 import forge.card.mana.ManaAtom;
 import forge.card.mana.ManaCost;
 import forge.card.mana.ManaCostShard;
+import forge.util.IterableUtil;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.*;
+import java.util.Map.Entry;
+import java.util.function.Predicate;
 
 /**
  * <p>
@@ -99,7 +92,10 @@ public class ManaCostBeingPaid {
         @Override
         public int getTotalGenericCost() {
             ShardCount c = unpaidShards.get(ManaCostShard.GENERIC);
-            return c == null ? 0 : c.totalCount;
+            if (c == null) {
+                return unpaidShards.isEmpty() && cntX == 0 ? -1 : 0;
+            }
+            return c.totalCount;
         }
     }
 
@@ -124,7 +120,6 @@ public class ManaCostBeingPaid {
     // ManaPartColor is stored before ManaPartGeneric
     private final Map<ManaCostShard, ShardCount> unpaidShards = Maps.newHashMap();
     private Map<String, Integer> xManaCostPaidByColor;
-    private final String sourceRestriction;
     private byte sunburstMap = 0;
     private int cntX = 0;
 
@@ -139,17 +134,11 @@ public class ManaCostBeingPaid {
         if (manaCostBeingPaid.xManaCostPaidByColor != null) {
             xManaCostPaidByColor = Maps.newHashMap(manaCostBeingPaid.xManaCostPaidByColor);
         }
-        sourceRestriction = manaCostBeingPaid.sourceRestriction;
         sunburstMap = manaCostBeingPaid.sunburstMap;
         cntX = manaCostBeingPaid.cntX;
     }
 
     public ManaCostBeingPaid(ManaCost manaCost) {
-        this(manaCost, null);
-    }
-
-    public ManaCostBeingPaid(ManaCost manaCost, String srcRestriction) {
-        sourceRestriction = srcRestriction;
         if (manaCost == null) { return; }
         for (ManaCostShard shard : manaCost) {
             if (shard == ManaCostShard.X) {
@@ -269,14 +258,10 @@ public class ManaCostBeingPaid {
     public final void increaseShard(final ManaCostShard shard, final int toAdd) {
         increaseShard(shard, toAdd, false);
     }
-    private final void increaseShard(final ManaCostShard shard, final int toAdd, final boolean forX) {
+    private void increaseShard(final ManaCostShard shard, final int toAdd, final boolean forX) {
         if (toAdd <= 0) { return; }
 
-        ShardCount sc = unpaidShards.get(shard);
-        if (sc == null) {
-            sc = new ShardCount();
-            unpaidShards.put(shard, sc);
-        }
+        ShardCount sc = unpaidShards.computeIfAbsent(shard, k -> new ShardCount());
         if (forX) {
             sc.xCount += toAdd;
         }
@@ -309,7 +294,7 @@ public class ManaCostBeingPaid {
                 for (Entry<ManaCostShard, ShardCount> e : unpaidShards.entrySet()) {
                     final ManaCostShard eShard = e.getKey();
                     sc = e.getValue();
-                    if (eShard.isOfKind(shard.getShard()) && !eShard.isMonoColor()) {
+                    if (eShard != ManaCostShard.COLORED_X && eShard.isOfKind(shard.getShard()) && eShard.isMultiColor()) {
                         if (otherSubtract >= sc.totalCount) {
                             otherSubtract -= sc.totalCount;
                             sc.xCount = sc.totalCount = 0;
@@ -320,7 +305,7 @@ public class ManaCostBeingPaid {
                                 sc.xCount = sc.totalCount;
                             }
                             // nothing more left in otherSubtract
-                            return;
+                            break;
                         }
                     }
                 }
@@ -340,7 +325,27 @@ public class ManaCostBeingPaid {
                                 sc.xCount = sc.totalCount;
                             }
                             // nothing more left in otherSubtract
-                            return;
+                            break;
+                        }
+                    }
+                }
+
+                // try to remove colorless hybrid shards with colored shard
+                for (Entry<ManaCostShard, ShardCount> e : unpaidShards.entrySet()) {
+                    final ManaCostShard eShard = e.getKey();
+                    sc = e.getValue();
+                    if (eShard.isOfKind(shard.getShard()) && eShard.isColorless()) {
+                        if (otherSubtract >= sc.totalCount) {
+                            otherSubtract -= sc.totalCount;
+                            sc.xCount = sc.totalCount = 0;
+                            toRemove.add(eShard);
+                        } else {
+                            sc.totalCount -= otherSubtract;
+                            if (sc.xCount > sc.totalCount) {
+                                sc.xCount = sc.totalCount;
+                            }
+                            // nothing more left in otherSubtract
+                            break;
                         }
                     }
                 }
@@ -360,7 +365,7 @@ public class ManaCostBeingPaid {
                                 sc.xCount = sc.totalCount;
                             }
                             // nothing more left in otherSubtract
-                            return;
+                            break;
                         }
                     }
                 }
@@ -382,7 +387,21 @@ public class ManaCostBeingPaid {
                                 sc.xCount = sc.totalCount;
                             }
                             // nothing more left in otherSubtract
-                            return;
+                            break;
+                        }
+                    } else if (sc.xCount > 0) { // X part that can only be paid by specific color
+                        if (otherSubtract >= sc.xCount) {
+                            otherSubtract -= sc.xCount;
+                            sc.totalCount -= sc.xCount;
+                            sc.xCount = 0;
+                            if (sc.totalCount == 0) {
+                                toRemove.add(eShard);
+                            }
+                        } else {
+                            sc.totalCount -= otherSubtract;
+                            sc.xCount -= otherSubtract;
+                            // nothing more left in otherSubtract
+                            break;
                         }
                     }
                 }
@@ -435,18 +454,15 @@ public class ManaCostBeingPaid {
             //throw new RuntimeException("ManaCost : addMana() error, mana not needed - " + mana);
         }
 
-        Predicate<ManaCostShard> predCanBePaid = new Predicate<ManaCostShard>() {
-            @Override
-            public boolean apply(ManaCostShard ms) {
-                // Check Colored X and see if the color is already used
-                if (ms == ManaCostShard.COLORED_X && !canColoredXShardBePaidByColor(MagicColor.toShortString(colorMask), xManaCostPaidByColor)) {
-                    return false;
-                }
-                return pool.canPayForShardWithColor(ms, colorMask);
+        Predicate<ManaCostShard> predCanBePaid = ms -> {
+            // Check Colored X and see if the color is already used
+            if (ms == ManaCostShard.COLORED_X && !canColoredXShardBePaidByColor(MagicColor.toShortString(colorMask), xManaCostPaidByColor)) {
+                return false;
             }
+            return pool.canPayForShardWithColor(ms, colorMask);
         };
 
-        return tryPayMana(colorMask, Iterables.filter(unpaidShards.keySet(), predCanBePaid), pool.getPossibleColorUses(colorMask)) != null;
+        return tryPayMana(colorMask, IterableUtil.filter(unpaidShards.keySet(), predCanBePaid), pool.getPossibleColorUses(colorMask)) != null;
     }
 
     /**
@@ -463,30 +479,20 @@ public class ManaCostBeingPaid {
             throw new RuntimeException("ManaCost : addMana() error, mana not needed - " + mana);
         }
 
-        Predicate<ManaCostShard> predCanBePaid = new Predicate<ManaCostShard>() {
-            @Override
-            public boolean apply(ManaCostShard ms) {
-                return canBePaidWith(ms, mana, pool, xManaCostPaidByColor);
-            }
-        };
+        Predicate<ManaCostShard> predCanBePaid = ms -> canBePaidWith(ms, mana, pool, xManaCostPaidByColor);
 
         byte inColor = mana.getColor();
         byte outColor = pool.getPossibleColorUses(inColor);
-        return tryPayMana(inColor, Iterables.filter(unpaidShards.keySet(), predCanBePaid), outColor) != null;
+        return tryPayMana(inColor, IterableUtil.filter(unpaidShards.keySet(), predCanBePaid), outColor) != null;
     }
     
     public final ManaCostShard payManaViaConvoke(final byte color) {
-        Predicate<ManaCostShard> predCanBePaid = new Predicate<ManaCostShard>() {
-            @Override
-            public boolean apply(ManaCostShard ms) {
-                return ms.canBePaidWithManaOfColor(color);
-            }
-        };
-        return tryPayMana(color, Iterables.filter(unpaidShards.keySet(), predCanBePaid), (byte)0xFF);
+        Predicate<ManaCostShard> predCanBePaid = ms -> !ms.isSnow() && !ms.isColorless() && ms.canBePaidWithManaOfColor(color);
+        return tryPayMana(color, IterableUtil.filter(unpaidShards.keySet(), predCanBePaid), (byte)0xFF);
     }
 
     public ManaCostShard getShardToPayByPriority(Iterable<ManaCostShard> payableShards, byte possibleUses) {
-        Set<ManaCostShard> choice = EnumSet.noneOf(ManaCostShard.class);
+        List<ManaCostShard> choice = Lists.newArrayList();
         int priority = Integer.MIN_VALUE;
         for (ManaCostShard toPay : payableShards) {
             // if m is a better to pay than choice
@@ -503,7 +509,7 @@ public class ManaCostBeingPaid {
             return null;
         }
 
-       return Iterables.getFirst(choice, null);
+        return Iterables.getFirst(choice, null);
     }
 
     private ManaCostShard tryPayMana(final byte colorMask, Iterable<ManaCostShard> payableShards, byte possibleUses) {
@@ -545,10 +551,10 @@ public class ManaCostBeingPaid {
                 // The generic portion of a 2/Colored mana, should be lower priority than generic mana
                 return !ColorSet.fromMask(bill.getColorMask() & paymentColor).isColorless() ? 9 : 1;
             }
-            if (!bill.isPhyrexian()) {
-                return 10;
+            if (bill.isPhyrexian()) {
+                return 8;
             }
-            return 8;
+            return 10;
         }
         return 5;
     }
@@ -705,10 +711,6 @@ public class ManaCostBeingPaid {
         unpaidShards.remove(ManaCostShard.GENERIC);
     }
 
-    public String getSourceRestriction() {
-        return sourceRestriction;
-    }
-
     public Iterable<ManaCostShard> getDistinctShards() {
         return unpaidShards.keySet();
     }
@@ -728,10 +730,10 @@ public class ManaCostBeingPaid {
         }
         return result;
     }
-    
+
     public boolean hasAnyKind(int kind) {
-        for (ManaCostShard s : unpaidShards.keySet()) {
-            if (s.isOfKind(kind)) {
+        for (Map.Entry<ManaCostShard, ShardCount> e : unpaidShards.entrySet()) {
+            if (e.getKey().isOfKind(kind) && e.getValue().totalCount > e.getValue().xCount) {
                 return true;
             }
         }

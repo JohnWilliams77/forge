@@ -3,9 +3,9 @@ ManaCost:3 R
 Types:Creature Dragon
 PT:3/2
 K:Flying
-K:CARDNAME can't block.
-Oracle:Flying\nYoung Red Dragon can't block.
+S:Mode$ CantBlock | ValidCard$ Card.Self | Description$ CARDNAME can't block.
 AlternateMode:Adventure
+Oracle:Flying\nYoung Red Dragon can't block.
 
 ALTERNATE
 

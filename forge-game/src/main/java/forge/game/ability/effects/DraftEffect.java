@@ -51,14 +51,13 @@ import java.util.*;
          CardCollection drafted = new CardCollection();
 
          for (int i = 0; i < numToDraft; i++) {
-             String chosen = "";
              Collections.shuffle(spellbook);
              List<Card> draftOptions = new ArrayList<>();
              for (String name : spellbook.subList(0, 3)) {
                  // Cardnames that include "," must use ";" instead in Spellbook$ (i.e. Tovolar; Dire Overlord)
                  name = name.replace(";", ",");
                  Card cardOption = Card.fromPaperCard(StaticData.instance().getCommonCards().getUniqueByName(name), player);
-                 cardOption.setTokenCard(true);
+                 cardOption.setTokenCard(sa.hasParam("TokenCard"));
                  draftOptions.add(cardOption);
              }
 
@@ -69,6 +68,10 @@ import java.util.*;
 
          final CardZoneTable triggerList = new CardZoneTable();
          for (final Card c : drafted) {
+             if (zone.equals(ZoneType.Exile) && !c.canExiledBy(sa, true)) {
+                 continue;
+             }
+
              Card made = game.getAction().moveTo(zone, c, sa, moveParams);
              if (zone.equals(ZoneType.Exile)) {
                  handleExiledWith(made, sa);

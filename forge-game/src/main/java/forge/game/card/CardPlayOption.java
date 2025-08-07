@@ -1,10 +1,12 @@
 package forge.game.card;
 
-import org.apache.commons.lang3.StringUtils;
-
+import forge.card.MagicColor;
+import forge.game.ability.AbilityUtils;
 import forge.game.cost.Cost;
+import forge.game.mana.ManaConversionMatrix;
 import forge.game.player.Player;
 import forge.game.staticability.StaticAbility;
+import org.apache.commons.lang3.StringUtils;
 
 public final class CardPlayOption {
     public enum PayManaCost {
@@ -20,12 +22,11 @@ public final class CardPlayOption {
     private final boolean withFlash;
     private final boolean grantsZonePermissions;
     private final Cost altManaCost;
-    private final boolean altIsAdditional;
 
-    public CardPlayOption(final Player player, final StaticAbility sta, final boolean withoutManaCost, final Cost altManaCost, final boolean altIsAdditional, final boolean withFlash, final boolean grantZonePermissions) {
-        this(player, sta, withoutManaCost ? PayManaCost.NO : PayManaCost.YES, altManaCost, altIsAdditional, withFlash, grantZonePermissions);
+    public CardPlayOption(final Player player, final StaticAbility sta, final boolean withoutManaCost, final Cost altManaCost, final boolean withFlash, final boolean grantZonePermissions) {
+        this(player, sta, withoutManaCost ? PayManaCost.NO : PayManaCost.YES, altManaCost, withFlash, grantZonePermissions);
     }
-    private CardPlayOption(final Player player, final StaticAbility sta, final PayManaCost payManaCost, final Cost altManaCost, final boolean altIsAdditional, final boolean withFlash,
+    private CardPlayOption(final Player player, final StaticAbility sta, final PayManaCost payManaCost, final Cost altManaCost, final boolean withFlash,
                            final boolean grantZonePermissions) {
         this.player = player;
         this.sta = sta;
@@ -33,7 +34,6 @@ public final class CardPlayOption {
         this.withFlash = withFlash;
         this.grantsZonePermissions = grantZonePermissions;
         this.altManaCost = altManaCost;
-        this.altIsAdditional = altIsAdditional;
     }
 
 
@@ -65,6 +65,17 @@ public final class CardPlayOption {
         return sta.hasParam("MayPlaySnowIgnoreColor");
     }
 
+    public boolean applyManaConvert(ManaConversionMatrix matrix) {
+        if (isIgnoreManaCostType()) {
+            AbilityUtils.applyManaColorConversion(matrix, MagicColor.Constant.ANY_TYPE_CONVERSION);
+            return true;
+        } else if (isIgnoreManaCostColor()) {
+            AbilityUtils.applyManaColorConversion(matrix, MagicColor.Constant.ANY_COLOR_CONVERSION);
+            return true;
+        }
+        return false;
+    }
+
     public boolean isWithFlash() {
     	return withFlash;
     }
@@ -88,23 +99,22 @@ public final class CardPlayOption {
         switch (getPayManaCost()) {
             case YES:
                 if (altManaCost != null) {
-                    if (altIsAdditional) {
-                        String desc = sta.getParam("Description");
-                        sb.append(" (").append(desc, desc.indexOf("by "), desc.indexOf("."));
-                    } else {
-                        String insteadCost = getFormattedAltManaCost();
-                        insteadCost = insteadCost.replace("Pay ","");
-                        sb.append(" (by paying ").append(insteadCost).append(" instead of paying its mana cost");
-                    }
+                    String insteadCost = getFormattedAltManaCost();
+                    insteadCost = insteadCost.replace("Pay ","");
+                    sb.append(" (by paying ").append(insteadCost).append(" instead of paying its mana cost");
                     if (isWithFlash()) {
                         sb.append(" and as though it has flash");
                     }
                     sb.append(")");
                 }
-                if (isIgnoreManaCostColor()) {
-                    sb.append(" (may spend mana as though it were mana of any color to cast it)");
-                } else if (isIgnoreManaCostType()) {
+                if (isIgnoreManaCostType()) {
                     sb.append(" (may spend mana as though it were mana of any type to cast it)");
+                } else if (isIgnoreManaCostColor()) {
+                    sb.append(" (may spend mana as though it were mana of any color to cast it)");
+                }
+                if (sta.hasParam("RaiseCost")) {
+                    String desc = sta.getParam("Description");
+                    sb.append(" (").append(desc, desc.indexOf("by ") + desc.indexOf("pay "), desc.indexOf(".")).append(")");
                 }
                 break;
             case NO:

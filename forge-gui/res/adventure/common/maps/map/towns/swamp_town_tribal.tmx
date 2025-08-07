@@ -26,14 +26,15 @@
  </layer>
  <layer id="5" name="AboveSprites" width="30" height="17">
   <data encoding="base64" compression="zlib">
-   eJxjYBg8oIZ3oF0wCmDgujoDww116psrr8XAoKAFYTcN0vgW12FgkNDBZNPKTD1Oys0fDoDSsKZWXCGDlkGSRgeLO4gB9VRwK8y/zUPI30MJAACVSQnZ
+   eJxjYBg8oIZ3oF0wCmDgujoDww116psrr8XAoKAFYTcNQHzf0SGsRhyoRkIHk00JwGemHifl5g8HQGlYUyuukEHLICmTBos7iAH1VHArzL/NQ8jfQwkAAMWoCuE=
   </data>
  </layer>
  <objectgroup id="4" name="Objects">
   <object id="38" template="../../obj/entry_up.tx" x="208" y="272"/>
   <object id="41" template="../../obj/shop.tx" x="129" y="146">
    <properties>
-    <property name="commonShopList" value="Vampire,Zombie,Skeleton,Demon,Knight4Black,Rogue4Black,Sliver2Black"/>
+    <property name="commonShopList" value="BoosterPackShop,AlphaBoosterPackShop,BetaBoosterPackShop,GammaBoosterPackShop,DeltaBoosterPackShop,BlackBoosterPackShop,Vampire,Zombie,Skeleton,Demon,
+    Knight4Black,Rogue4Black,Sliver2Black"/>
     <property name="mythicShopList" value="Planeswalker,WUBRG,Vehicle,Artifact,Equip,Wand"/>
     <property name="rareShopList" value="Dimir,Rakdos,Orzhov,Golgari,Multicolor,Land4Black,Creature6Black,PhyrexianBlack"/>
     <property name="uncommonShopList" value="Creature2Black,Creature,Black,Horrors,Insects,Spiders"/>
@@ -86,7 +87,7 @@
     <property name="noRestock" type="bool" value="true"/>
    </properties>
   </object>
-  <object id="49" template="../../obj/quest.tx" x="114" y="114">
+  <object id="49" template="../../obj/quest.tx" x="95" y="114" width="36" height="16">
    <properties>
     <property name="questtype" value="swamp_town_tribal"/>
    </properties>

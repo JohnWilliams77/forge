@@ -1,7 +1,10 @@
 package forge.game.ability.effects;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+
+import com.google.common.collect.Sets;
 
 import forge.game.ability.AbilityKey;
 import forge.game.ability.AbilityUtils;
@@ -54,28 +57,29 @@ public class DrawEffect extends SpellAbilityEffect {
     public void resolve(SpellAbility sa) {
         final Card source = sa.getHostCard();
         final int numCards = sa.hasParam("NumCards") ? AbilityUtils.calculateAmount(sa.getHostCard(), sa.getParam("NumCards"), sa) : 1;
-
         final boolean upto = sa.hasParam("Upto");
         final boolean optional = sa.hasParam("OptionalDecider") || upto;
         Map<AbilityKey, Object> moveParams = AbilityKey.newMap();
         moveParams.put(AbilityKey.LastStateBattlefield, sa.getLastStateBattlefield());
         moveParams.put(AbilityKey.LastStateGraveyard, sa.getLastStateGraveyard());
 
-        for (final Player p : getDefinedPlayersOrTargeted(sa)) {
+        final List<Player> tgts = getTargetPlayersWithDuplicates(true, "Defined", sa);
+
+        for (final Player p : Sets.newLinkedHashSet(tgts)) {
             if (!p.isInGame()) {
                 continue;
             }
 
+            int actualNum = numCards * Collections.frequency(tgts, p);
+
             // it is optional, not upto and player can't choose to draw that many cards
-            if (optional && !upto && !p.canDrawAmount(numCards)) {
+            if (optional && !upto && !p.canDrawAmount(actualNum)) {
                 continue;
             }
 
-            if (optional && !p.getController().confirmAction(sa, null, Localizer.getInstance().getMessage("lblDoYouWantDrawCards", Lang.nounWithAmount(numCards, " card")), null)) {
+            if (optional && !p.getController().confirmAction(sa, null, Localizer.getInstance().getMessage("lblDoYouWantDrawCards", Lang.nounWithAmount(actualNum, " card")), null)) {
                 continue;
             }
-
-            int actualNum = numCards;
 
             if (upto) { // if it is upto, player can only choose how many cards they can draw
                 actualNum = StaticAbilityCantDraw.canDrawAmount(p, actualNum);
@@ -89,16 +93,11 @@ public class DrawEffect extends SpellAbilityEffect {
 
             final CardCollectionView drawn = p.drawCards(actualNum, sa, moveParams);
             if (sa.hasParam("Reveal")) {
-                if (sa.getParam("Reveal").equals("All")) {
-                    p.getGame().getAction().reveal(drawn, p, false);
-                } else {
-                    p.getGame().getAction().reveal(drawn, p);
-                }
+                p.getGame().getAction().reveal(drawn, p, !sa.getParam("Reveal").equals("All"));
             }
             if (sa.hasParam("RememberDrawn")) {
                 source.addRemembered(drawn);
             }
-            sa.setSVar("AFNotDrawnNum_" + p.getId(), "Number$" + drawn.size());
         }
     }
 }

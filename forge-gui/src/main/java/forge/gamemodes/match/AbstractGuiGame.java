@@ -1,24 +1,6 @@
 package forge.gamemodes.match;
 
-import java.io.Serializable;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
-
-import forge.gui.control.PlaybackSpeed;
-import forge.trackable.TrackableCollection;
-import org.apache.commons.lang3.StringUtils;
-
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
+import com.google.common.collect.*;
 import forge.game.GameView;
 import forge.game.card.Card;
 import forge.game.card.CardView;
@@ -28,6 +10,7 @@ import forge.game.event.GameEventSpellRemovedFromStack;
 import forge.game.player.PlayerView;
 import forge.gui.FThreads;
 import forge.gui.GuiBase;
+import forge.gui.control.PlaybackSpeed;
 import forge.gui.interfaces.IGuiGame;
 import forge.gui.interfaces.IMayViewCards;
 import forge.interfaces.IGameController;
@@ -36,8 +19,13 @@ import forge.localinstance.properties.ForgePreferences;
 import forge.localinstance.skin.FSkinProp;
 import forge.model.FModel;
 import forge.player.PlayerControllerHuman;
+import forge.trackable.TrackableCollection;
 import forge.trackable.TrackableTypes;
 import forge.util.Localizer;
+import org.apache.commons.lang3.StringUtils;
+
+import java.io.Serializable;
+import java.util.*;
 
 public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
     private PlayerView currentPlayer = null;
@@ -261,11 +249,10 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
                 }
                 return true; //original can always be shown if not a face down that can't be shown
             case Flipped:
-            case Transformed:
             case Meld:
-            case Modal:
+            case Backside:
                 return true;
-            case Adventure:
+            case Secondary:
                 if (cv.isFaceDown()) {
                     return getCurrentPlayer() == null || cv.canFaceDownBeShownToAny(getLocalPlayers());
                 }
@@ -370,6 +357,10 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
                 }
             }
             if (concedeNeeded) {
+                if (gameView.isMulligan()) { //prevent UI freezing when conceding while the game is waiting for inputs/action
+                    showErrorDialog(Localizer.getInstance().getMessage("lblWaitingforActions"));
+                    return false;
+                }
                 if (showConfirmDialog(Localizer.getInstance().getMessage("lblConcedeCurrentGame"), Localizer.getInstance().getMessage("lblConcedeTitle"), Localizer.getInstance().getMessage("lblConcede"), Localizer.getInstance().getMessage("lblCancel"))) {
                     for (final IGameController c : getOriginalGameControllers()) {
                         // Concede each player on this Gui (except mind-controlled players)
@@ -457,17 +448,13 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
 
     @Override
     public final void awaitNextInput() {
-        if (awaitNextInputTimer == null) {
-            String name = "?";
-            if (this.currentPlayer != null)
-                name = this.currentPlayer.getLobbyPlayerName();
-            awaitNextInputTimer = new Timer("awaitNextInputTimer Game:" + this.gameView.getId() + " Player:" + name);
-        }
+        checkAwaitNextInputTimer();
         //delay updating prompt to await next input briefly so buttons don't flicker disabled then enabled
         awaitNextInputTask = new TimerTask() {
             @Override
             public void run() {
                 FThreads.invokeInEdtLater(() -> {
+                    checkAwaitNextInputTimer();
                     synchronized (awaitNextInputTimer) {
                         if (awaitNextInputTask != null) {
                             updatePromptForAwait(getCurrentPlayer());
@@ -478,6 +465,14 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
             }
         };
         awaitNextInputTimer.schedule(awaitNextInputTask, 250);
+    }
+    private void checkAwaitNextInputTimer() {
+        if (awaitNextInputTimer == null) {
+            String name = "?";
+            if (this.currentPlayer != null)
+                name = this.currentPlayer.getLobbyPlayerName();
+            awaitNextInputTimer = new Timer("awaitNextInputTimer Game:" + this.gameView.getId() + " Player:" + name);
+        }
     }
 
     protected final void updatePromptForAwait(final PlayerView playerView) {
@@ -521,7 +516,7 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
 
     @Override
     public final boolean shouldAutoYield(final String key) {
-        String abilityKey = key.indexOf("): ") != -1 ? key.substring(key.indexOf("): ") + 3) : key;
+        String abilityKey = key.contains("): ") ? key.substring(key.indexOf("): ") + 3) : key;
         boolean yieldPerAbility = FModel.getPreferences().getPref(ForgePreferences.FPref.UI_AUTO_YIELD_MODE).equals(ForgeConstants.AUTO_YIELD_PER_ABILITY);
 
         return !getDisableAutoYields() && autoYields.contains(yieldPerAbility ? abilityKey : key);
@@ -529,7 +524,7 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
 
     @Override
     public final void setShouldAutoYield(final String key, final boolean autoYield) {
-        String abilityKey = key.indexOf("): ") != -1 ? key.substring(key.indexOf("): ") + 3) : key;
+        String abilityKey = key.contains("): ") ? key.substring(key.indexOf("): ") + 3) : key;
         boolean yieldPerAbility = FModel.getPreferences().getPref(ForgePreferences.FPref.UI_AUTO_YIELD_MODE).equals(ForgeConstants.AUTO_YIELD_PER_ABILITY);
 
         if (autoYield) {
@@ -560,27 +555,27 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
 
     @Override
     public final boolean shouldAlwaysAcceptTrigger(final int trigger) {
-        return Boolean.TRUE.equals(triggersAlwaysAccept.get(Integer.valueOf(trigger)));
+        return Boolean.TRUE.equals(triggersAlwaysAccept.get(trigger));
     }
 
     @Override
     public final boolean shouldAlwaysDeclineTrigger(final int trigger) {
-        return Boolean.FALSE.equals(triggersAlwaysAccept.get(Integer.valueOf(trigger)));
+        return Boolean.FALSE.equals(triggersAlwaysAccept.get(trigger));
     }
 
     @Override
     public final void setShouldAlwaysAcceptTrigger(final int trigger) {
-        triggersAlwaysAccept.put(Integer.valueOf(trigger), Boolean.TRUE);
+        triggersAlwaysAccept.put(trigger, Boolean.TRUE);
     }
 
     @Override
     public final void setShouldAlwaysDeclineTrigger(final int trigger) {
-        triggersAlwaysAccept.put(Integer.valueOf(trigger), Boolean.FALSE);
+        triggersAlwaysAccept.put(trigger, Boolean.FALSE);
     }
 
     @Override
     public final void setShouldAlwaysAskTrigger(final int trigger) {
-        triggersAlwaysAccept.remove(Integer.valueOf(trigger));
+        triggersAlwaysAccept.remove(trigger);
     }
 
     // End of Triggers preliminary choice
@@ -668,11 +663,11 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
         final Integer[] choices = new Integer[count];
         if (sortDesc) {
             for (int i = 0; i < count; i++) {
-                choices[count - i - 1] = Integer.valueOf(i + min);
+                choices[count - i - 1] = i + min;
             }
         } else {
             for (int i = 0; i < count; i++) {
-                choices[i] = Integer.valueOf(i + min);
+                choices[i] = i + min;
             }
         }
         return oneOrNone(message, ImmutableList.copyOf(choices));
@@ -690,7 +685,7 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
 
         final ImmutableList.Builder<Serializable> choices = ImmutableList.builder();
         for (int i = min; i <= cutoff; i++) {
-            choices.add(Integer.valueOf(i));
+            choices.add(i);
         }
         choices.add(Localizer.getInstance().getMessage("lblOtherInteger"));
 
@@ -719,7 +714,7 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
             } // that is 'cancel'
 
             if (StringUtils.isNumeric(str)) {
-                final Integer val = Integer.valueOf(str);
+                final int val = Integer.parseInt(str);
                 if (val >= min && val <= max) {
                     return val;
                 }
@@ -740,12 +735,17 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
 
     @Override
     public <T> List<T> many(final String title, final String topCaption, final int min, final int max, final List<T> sourceChoices, final CardView c) {
+        return many(title, topCaption, min, max, sourceChoices, null, c);
+    }
+
+    @Override
+    public <T> List<T> many(String title, String topCaption, int min, int max, List<T> sourceChoices, List<T> destChoices, CardView c) {
         if (max == 1) {
             return getChoices(title, min, max, sourceChoices);
         }
         final int m2 = min >= 0 ? sourceChoices.size() - min : -1;
         final int m1 = max >= 0 ? sourceChoices.size() - max : -1;
-        return order(title, topCaption, m1, m2, sourceChoices, null, c, false);
+        return order(title, topCaption, m1, m2, sourceChoices, destChoices, c, false);
     }
 
     @Override
@@ -844,6 +844,9 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
             awaitNextInputTimer = null;
         }
         daytime = null;
+    }
+
+    public void updateDependencies() {        
     }
     // End of Choice code
 }

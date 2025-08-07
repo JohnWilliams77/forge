@@ -1,14 +1,10 @@
 package forge.util;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Hashtable;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-
-import com.google.common.base.Function;
 import com.google.common.collect.Lists;
+
+import java.util.*;
+import java.util.Map.Entry;
+import java.util.function.Function;
 
 /** 
  * TODO: Write javadoc for this type.
@@ -29,6 +25,16 @@ public class Aggregates {
         return max;
     }
 
+    public static Integer max(final Iterable<Integer> source) {
+        if (source == null) return null;
+        int max = Integer.MIN_VALUE;
+        for (int value : source) {
+            if (value > max)
+                max = value;
+        }
+        return max;
+    }
+
     public static final <T> Integer min(final Iterable<T> source, final Function<T, Integer> valueAccessor) {
         if (source == null) { return null; }
         int max = Integer.MAX_VALUE;
@@ -39,6 +45,16 @@ public class Aggregates {
             }
         }
         return max;
+    }
+
+    public static Integer min(final Iterable<Integer> source) {
+        if (source == null) return null;
+        int min = Integer.MAX_VALUE;
+        for (int value : source) {
+            if (value < min)
+                min = value;
+        }
+        return min;
     }
 
     public static final <T> T itemWithMax(final Iterable<T> source, final Function<T, Integer> valueAccessor) {
@@ -83,6 +99,16 @@ public class Aggregates {
         return result;
     }
 
+    public static int sum(final Iterable<Integer> source) {
+        int result = 0;
+        if(source != null) {
+            for(final Integer value : source) {
+                result += value;
+            }
+        }
+        return result;
+    }
+
     public static final <T> T random(final T[] source) {
         if (source == null) { return null; }
 
@@ -113,7 +139,7 @@ public class Aggregates {
                 default: return src.get(MyRandom.getRandom().nextInt(len));
             }
         }
-        
+
         T candidate = null;
         int lowest = Integer.MAX_VALUE;
         for (final T item : source) {
@@ -213,9 +239,9 @@ public class Aggregates {
             U k = fnGetField.apply(kv.getKey());
             Integer v = kv.getValue();
             Integer sum = result.get(k);
-            int n = v == null ? 0 : v.intValue();
-            int s = sum == null ? 0 : sum.intValue();
-            result.put(k, Integer.valueOf(s + n)); 
+            int n = v == null ? 0 : v;
+            int s = sum == null ? 0 : sum;
+            result.put(k, s + n);
         }
         return result.entrySet();
     }

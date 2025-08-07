@@ -22,6 +22,7 @@ import forge.game.card.CardLists;
 import forge.game.card.TokenCreateTable;
 import forge.game.card.token.TokenInfo;
 import forge.game.player.Player;
+import forge.game.replacement.ReplacementEffect;
 import forge.game.replacement.ReplacementResult;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
@@ -39,6 +40,7 @@ public class ReplaceTokenEffect extends SpellAbilityEffect {
         if (repSA.getReplacingObjects().isEmpty()) {
             repSA = sa.getRootAbility();
         }
+        ReplacementEffect re = repSA.getReplacementEffect();
         // ReplaceToken Effect only applies to one Player
         Player affected = (Player) repSA.getReplacingObject(AbilityKey.Player);
         TokenCreateTable table = (TokenCreateTable) repSA.getReplacingObject(AbilityKey.Token);
@@ -47,21 +49,21 @@ public class ReplaceTokenEffect extends SpellAbilityEffect {
         Map<AbilityKey, Object> originalParams =
                 (Map<AbilityKey, Object>) repSA.getReplacingObject(AbilityKey.OriginalParams);
 
-        // currently the only ones that changes the amount does double it
         if ("Amount".equals(sa.getParam("Type"))) {
+            final String mod = sa.getParamOrDefault("Amount", "Twice");
             for (Map.Entry<Card, Integer> e : table.row(affected).entrySet()) {
-                if (!sa.matchesValidParam("ValidCard", e.getKey())) {
+                if (!re.matchesValidParam("ValidToken", e.getKey())) {
                     continue;
                 }
-                // currently the amount is only doubled
-                table.put(affected, e.getKey(), e.getValue() * 2);
+                int newAmt = AbilityUtils.doXMath(e.getValue(), mod, card, sa);
+                table.put(affected, e.getKey(), newAmt);
             }
         } else if ("AddToken".equals(sa.getParam("Type"))) {
             long timestamp = game.getNextTimestamp();
 
             Map<Player, Integer> byController = Maps.newHashMap();
             for (Map.Entry<Card, Integer> e : table.row(affected).entrySet()) {
-                if (!sa.matchesValidParam("ValidCard", e.getKey())) {
+                if (!re.matchesValidParam("ValidToken", e.getKey())) {
                     continue;
                 }
                 Player contoller = e.getKey().getController();
@@ -106,7 +108,7 @@ public class ReplaceTokenEffect extends SpellAbilityEffect {
             Multimap<Player, Pair<Integer, Iterable<Object>>> toInsertMap = ArrayListMultimap.create();
             Set<Card> toRemoveSet = Sets.newHashSet();
             for (Map.Entry<Card, Integer> e : table.row(affected).entrySet()) {
-                if (!sa.matchesValidParam("ValidCard", e.getKey())) {
+                if (!re.matchesValidParam("ValidToken", e.getKey())) {
                     continue;
                 }
                 Player controller = e.getKey().getController();
@@ -129,6 +131,7 @@ public class ReplaceTokenEffect extends SpellAbilityEffect {
                     final Card token;
                     if (script.equals("Chosen")) {
                         token = CopyPermanentEffect.getProtoType(sa, chosen, pe.getKey());
+                        token.setCopiedPermanent(token);
                     } else {
                         token = TokenInfo.getProtoType(script, sa, pe.getKey());
                     }
@@ -151,7 +154,7 @@ public class ReplaceTokenEffect extends SpellAbilityEffect {
                 newController = AbilityUtils.getDefinedPlayers(sa.getHostCard(), sa.getParam("NewController"), sa).get(0);
             }
             for (Map.Entry<Card, Integer> c : table.row(affected).entrySet()) {
-                if (!sa.matchesValidParam("ValidCard", c.getKey())) {
+                if (!re.matchesValidParam("ValidToken", c.getKey())) {
                     continue;
                 }
                 c.getKey().setController(newController, timestamp);

@@ -2,8 +2,6 @@ package forge.adventure.data;
 
 import com.badlogic.gdx.scenes.scene2d.ui.Image;
 import com.badlogic.gdx.utils.Array;
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import forge.Forge;
 import forge.adventure.character.EnemySprite;
 import forge.adventure.pointofintrest.PointOfInterestChanges;
@@ -13,6 +11,7 @@ import forge.adventure.util.Config;
 import forge.adventure.util.Current;
 import forge.adventure.util.Reward;
 import forge.card.CardEdition;
+import forge.card.PrintSheet;
 import forge.deck.Deck;
 import forge.game.GameType;
 import forge.gamemodes.limited.BoosterDraft;
@@ -20,13 +19,15 @@ import forge.gamemodes.limited.LimitedPoolType;
 import forge.model.CardBlock;
 import forge.model.FModel;
 import forge.util.Aggregates;
+import forge.util.IterableUtil;
 import forge.util.MyRandom;
+import forge.util.StreamUtil;
 import org.apache.commons.lang3.tuple.Pair;
 
 import java.io.Serializable;
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 public class AdventureEventData implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -90,6 +91,7 @@ public class AdventureEventData implements Serializable {
             random = (eventSeed > 0 ? new Random(eventSeed) : new Random());
         return random;
     }
+
     public AdventureEventData(Long seed, AdventureEventController.EventFormat selectedFormat) {
         setEventSeed(seed);
         eventStatus = AdventureEventController.EventStatus.Available;
@@ -104,7 +106,7 @@ public class AdventureEventData implements Serializable {
             //Below all to be fully generated in later release
             rewardPacks = getRewardPacks(3);
             generateParticipants(7);
-            if (cardBlock != null){
+            if (cardBlock != null) {
                 packConfiguration = getBoosterConfiguration(cardBlock);
 
                 rewards = new AdventureEventData.AdventureEventReward[4];
@@ -125,8 +127,7 @@ public class AdventureEventData implements Serializable {
                 r2.itemRewards = new String[]{"Challenge Coin"};
                 rewards[2] = r2;
             }
-        }
-        else if (format.equals(AdventureEventController.EventFormat.Jumpstart)) {
+        } else if (format.equals(AdventureEventController.EventFormat.Jumpstart)) {
             int numPacksToPickFrom = 6;
             generateParticipants(7);
 
@@ -137,7 +138,7 @@ public class AdventureEventData implements Serializable {
 
             jumpstartBoosters = AdventureEventController.instance().getJumpstartBoosters(cardBlock, numPacksToPickFrom);
 
-            packConfiguration = new String[] {cardBlock.getLandSet().getCode(), cardBlock.getLandSet().getCode(), cardBlock.getLandSet().getCode()};
+            packConfiguration = new String[]{cardBlock.getLandSet().getCode(), cardBlock.getLandSet().getCode(), cardBlock.getLandSet().getCode()};
 
             for (AdventureEventParticipant participant : participants) {
                 List<Deck> availableOptions = AdventureEventController.instance().getJumpstartBoosters(cardBlock, numPacksToPickFrom);
@@ -170,9 +171,8 @@ public class AdventureEventData implements Serializable {
                     }
                     if (themeAdded.isEmpty()) {
                         done = true;
-                    }
-                    else {
-                        chosenPacks.addAll(themeMap.get(themeAdded).subList(0, Math.min(themeMap.get(themeAdded).size(),packConfiguration.length - chosenPacks.size())));
+                    } else {
+                        chosenPacks.addAll(themeMap.get(themeAdded).subList(0, Math.min(themeMap.get(themeAdded).size(), packConfiguration.length - chosenPacks.size())));
                         availableOptions.removeAll(themeMap.get(themeAdded));
                         themeMap.remove(themeAdded);
                         themeAdded = "";
@@ -182,13 +182,20 @@ public class AdventureEventData implements Serializable {
                 //2. Fill remaining slots with colors already picked whenever possible
                 Map<String, List<Deck>> colorMap = new HashMap<>();
                 for (Deck option : availableOptions) {
-                    if (option.getTags().contains("black")) colorMap.getOrDefault("black", new ArrayList<Deck>()).add(option);
-                    if (option.getTags().contains("blue")) colorMap.getOrDefault("blue", new ArrayList<Deck>()).add(option);
-                    if (option.getTags().contains("green")) colorMap.getOrDefault("green", new ArrayList<Deck>()).add(option);
-                    if (option.getTags().contains("red")) colorMap.getOrDefault("red", new ArrayList<Deck>()).add(option);
-                    if (option.getTags().contains("white")) colorMap.getOrDefault("white", new ArrayList<Deck>()).add(option);
-                    if (option.getTags().contains("multicolor")) colorMap.getOrDefault("multicolor", new ArrayList<Deck>()).add(option);
-                    if (option.getTags().contains("colorless")) colorMap.getOrDefault("colorless", new ArrayList<Deck>()).add(option);
+                    if (option.getTags().contains("black"))
+                        colorMap.getOrDefault("black", new ArrayList<Deck>()).add(option);
+                    if (option.getTags().contains("blue"))
+                        colorMap.getOrDefault("blue", new ArrayList<Deck>()).add(option);
+                    if (option.getTags().contains("green"))
+                        colorMap.getOrDefault("green", new ArrayList<Deck>()).add(option);
+                    if (option.getTags().contains("red"))
+                        colorMap.getOrDefault("red", new ArrayList<Deck>()).add(option);
+                    if (option.getTags().contains("white"))
+                        colorMap.getOrDefault("white", new ArrayList<Deck>()).add(option);
+                    if (option.getTags().contains("multicolor"))
+                        colorMap.getOrDefault("multicolor", new ArrayList<Deck>()).add(option);
+                    if (option.getTags().contains("colorless"))
+                        colorMap.getOrDefault("colorless", new ArrayList<Deck>()).add(option);
                 }
 
                 done = false;
@@ -216,19 +223,18 @@ public class AdventureEventData implements Serializable {
                             }
                         }
                     }
-                        //3. If no matching color found and need more packs, add any available at random.
-                        if (packConfiguration.length > chosenPacks.size() && colorAdded.isEmpty() && !availableOptions.isEmpty()){
-                            chosenPacks.add(Aggregates.removeRandom(availableOptions));
-                            colorAdded = "";
-                        }
-                        else {
-                            done = colorAdded.isEmpty() || packConfiguration.length <= chosenPacks.size();
-                            colorAdded = "";
-                        }
+                    //3. If no matching color found and need more packs, add any available at random.
+                    if (packConfiguration.length > chosenPacks.size() && colorAdded.isEmpty() && !availableOptions.isEmpty()) {
+                        chosenPacks.add(Aggregates.removeRandom(availableOptions));
+                        colorAdded = "";
+                    } else {
+                        done = colorAdded.isEmpty() || packConfiguration.length <= chosenPacks.size();
+                        colorAdded = "";
+                    }
 
                 }
                 participant.registeredDeck = new Deck();
-                for (Deck chosen : chosenPacks){
+                for (Deck chosen : chosenPacks) {
                     participant.registeredDeck.getMain().addAllFlat(chosen.getMain().toFlatList());
                 }
             }
@@ -302,11 +308,11 @@ public class AdventureEventData implements Serializable {
     public static Predicate<CardEdition> selectSetPool() {
         final int rollD100 = MyRandom.getRandom().nextInt(100);
         Predicate<CardEdition> rolledFilter;
-        if (rollD100 < 40) {
+        if (rollD100 < 30) {
             rolledFilter = filterStandard;
-        } else if (rollD100 < 70) {
+        } else if (rollD100 < 60) {
             rolledFilter = filterPioneer;
-        } else if (rollD100 < 90) {
+        } else if (rollD100 < 80) {
             rolledFilter = filterModern;
         } else {
             rolledFilter = filterVintage;
@@ -317,18 +323,30 @@ public class AdventureEventData implements Serializable {
 
     private CardBlock pickWeightedCardBlock() {
         CardEdition.Collection editions = FModel.getMagicDb().getEditions();
+        ConfigData configData = Config.instance().getConfigData();
         Iterable<CardBlock> src = FModel.getBlocks(); //all blocks
-        Predicate<CardEdition> filter = Predicates.and(CardEdition.Predicates.CAN_MAKE_BOOSTER, selectSetPool());
-        List<CardEdition> allEditions = new ArrayList<>();
-        StreamSupport.stream(editions.spliterator(), false).filter(filter::apply).filter(CardEdition::hasBoosterTemplate).collect(Collectors.toList()).iterator().forEachRemaining(allEditions::add);
+        Predicate<CardEdition> filter = CardEdition.Predicates.CAN_MAKE_BOOSTER.and(selectSetPool());
 
-        //Temporary restriction until rewards are more diverse - don't want to award restricted cards so these editions need different rewards added.
-        List<String> restrictedDrafts = new ArrayList<>();
-        restrictedDrafts.add("LEA");
-        restrictedDrafts.add("LEB");
-        restrictedDrafts.add("2ED");
-        restrictedDrafts.add("30A");
-        allEditions.removeIf(q -> restrictedDrafts.contains(q.getCode()));
+        if(configData.restrictedEvents != null) {
+            //Temporary restriction until rewards are more diverse - don't want to award restricted cards so these editions need different rewards added.
+            //Also includes sets that use conspiracy or commander drafts.
+            Set<String> restrictedEvents = Set.of(configData.restrictedEvents);
+            filter = filter.and((q) -> !restrictedEvents.contains(q.getCode()));
+        }
+        if (configData.allowedEditions != null) {
+            Set<String> allowed = Set.of(configData.allowedEditions);
+            filter = filter.and(q -> allowed.contains(q.getCode()));
+        } else {
+            List<String> restrictedList = Arrays.asList(configData.restrictedEditions);
+            Set<String> restricted = new HashSet<>(restrictedList); //Would use Set.of but that throws an error if there's any duplicates, and users edit these lists all the time.
+            filter = filter.and(q -> !restricted.contains(q.getCode()));
+        }
+
+        List<CardEdition> allEditions = new ArrayList<>();
+        StreamUtil.stream(editions)
+                .filter(filter)
+                .filter(CardEdition::hasBoosterTemplate)
+                .forEach(allEditions::add);
 
         List<CardBlock> legalBlocks = new ArrayList<>();
         for (CardBlock b : src) { // for each block
@@ -349,32 +367,66 @@ public class AdventureEventData implements Serializable {
                     for (Pair<String, Integer> slot : slots) {
                         boosterSize += slot.getRight();
                     }
-                    isOkay = boosterSize == 15;
+                    isOkay = boosterSize > 11;
+                }
+                for (PrintSheet ps : c.getPrintSheetsBySection()) {
+                    //exclude block with sets containing P9 cards..
+                    if (ps.containsCardNamed("Black Lotus", 1)
+                                || ps.containsCardNamed("Mox Emerald", 1)
+                                || ps.containsCardNamed("Mox Pearl", 1)
+                                || ps.containsCardNamed("Mox Ruby", 1)
+                                || ps.containsCardNamed("Mox Sapphire", 1)
+                                || ps.containsCardNamed("Mox Jet", 1)
+                                || ps.containsCardNamed("Ancestral Recall", 1)
+                                || ps.containsCardNamed("Timetwister", 1)
+                                || ps.containsCardNamed("Time Walk", 1)) {
+                            isOkay = false;
+                        break;
+                    }
                 }
             }
-            if (isOkay)
+            if (isOkay) {
                 legalBlocks.add(b);
+            }
         }
 
-        for (String restricted : Config.instance().getConfigData().restrictedEditions) {
-            legalBlocks.removeIf(q -> q.getName().equals(restricted));
-        }
         return legalBlocks.isEmpty() ? null : Aggregates.random(legalBlocks);
     }
 
     private CardBlock pickJumpstartCardBlock() {
         Iterable<CardBlock> src = FModel.getBlocks(); //all blocks
         List<CardBlock> legalBlocks = new ArrayList<>();
-        for (CardBlock b : src) { // for each block
-            //I hate doing this, but it seems like the simplest way to reliably filter out prereleases
-            if (b.getName().toUpperCase().contains("JUMPSTART")) {
-                legalBlocks.add(b);
+        ConfigData configData = Config.instance().getConfigData();
+        if (configData.allowedJumpstart != null) {
+            Set<String> allowed = Set.of(configData.allowedJumpstart);
+            for (CardBlock b : src) { // for each block
+                if (allowed.contains(b.getName())) {
+                    legalBlocks.add(b);
+                }
+            }
+            for (CardBlock b : FModel.getFantasyBlocks()) {
+                if (allowed.contains(b.getName())) {
+                    legalBlocks.add(b);
+                }
             }
         }
-        for (String restricted : Config.instance().getConfigData().restrictedEditions) {
-            legalBlocks.removeIf(q -> q.getName().equals(restricted));
+        else {
+            for (CardBlock b : src) { // for each block
+                //I hate doing this, but it seems like the simplest way to reliably filter out prereleases
+                if (b.getName().toUpperCase().contains("JUMPSTART")) {
+                    legalBlocks.add(b);
+                }
+            }
+            if (configData.allowedEditions != null) {
+                Set<String> allowed = Set.of(configData.allowedEditions);
+                legalBlocks.removeIf(q -> !allowed.contains(q.getName()));
+            } else {
+                for (String restricted : configData.restrictedEditions) {
+                    legalBlocks.removeIf(q -> q.getName().equals(restricted));
+                }
+            }
         }
-        return legalBlocks.isEmpty()?null:Aggregates.random(legalBlocks);
+        return legalBlocks.isEmpty() ? null : Aggregates.random(legalBlocks);
     }
 
 
@@ -403,7 +455,8 @@ public class AdventureEventData implements Serializable {
     public void generateParticipants(int numberOfOpponents) {
         participants = new AdventureEventParticipant[numberOfOpponents + 1];
 
-        List<EnemyData> data = Aggregates.random(WorldData.getAllEnemies(), numberOfOpponents);
+        Iterable<EnemyData> validParticipants = IterableUtil.filter(WorldData.getAllEnemies(), q -> q.nextEnemy == null);
+        List<EnemyData> data = Aggregates.random(validParticipants, numberOfOpponents);
         for (int i = 0; i < numberOfOpponents; i++) {
             participants[i] = new AdventureEventParticipant().generate(data.get(i));
         }
@@ -473,9 +526,7 @@ public class AdventureEventData implements Serializable {
             draftedDeck.setComment("Prize for placing 1st overall in draft event");
             rewards[3].cardRewards = new Deck[]{draftedDeck};
 
-        }
-
-        else if (format == AdventureEventController.EventFormat.Jumpstart) {
+        } else if (format == AdventureEventController.EventFormat.Jumpstart) {
 
             rewards[3] = new AdventureEventReward();
             rewards[3].minWins = 0;
@@ -506,7 +557,9 @@ public class AdventureEventData implements Serializable {
                 data.itemName = item;
                 ret.addAll(data.generate(false, true));
             }
-
+            for (RewardData data : r.rewards) {
+                ret.addAll(data.generate(false, true));
+            }
         }
         if (ret.size > 0) {
             RewardScene.instance().loadRewards(ret, RewardScene.Type.Loot, null);
@@ -536,39 +589,39 @@ public class AdventureEventData implements Serializable {
     }
 
     public String getDescription(PointOfInterestChanges changes) {
+        float townPriceModifier = changes == null ? 1f : changes.getTownPriceModifier();
         if (format.equals(AdventureEventController.EventFormat.Draft)) {
             description = "Event Type: Booster Draft\n";
             description += "Block: " + getCardBlock() + "\n";
             description += "Boosters: " + String.join(", ", packConfiguration) + "\n";
             description += "Competition Style: " + participants.length + " players, matches played as best of " + eventRules.gamesPerMatch + ", " + (getPairingDescription()) + "\n\n";
-            description += String.format("Entry Fee (incl. reputation)\nGold %d[][+Gold][BLACK]\nMana Shards %d[][+Shards][BLACK]\n", Math.round(eventRules.goldToEnter * changes.getTownPriceModifier()), Math.round(eventRules.shardsToEnter  * changes.getTownPriceModifier()));
+            description += String.format("Pay 1 Entry Fee\n- Gold %d[][+Gold][BLACK]\n- Mana Shards %d[][+Shards][BLACK]\n", Math.round(eventRules.goldToEnter * townPriceModifier), Math.round(eventRules.shardsToEnter * townPriceModifier));
             if (eventRules.acceptsBronzeChallengeCoin) {
-                description += "Bronze Challenge Coin [][+BronzeChallengeCoin][BLACK]\n\n";
+                description += "- Bronze Challenge Coin [][+BronzeChallengeCoin][BLACK]\n\n";
             } else if (eventRules.acceptsSilverChallengeCoin) {
-                description += "Silver Challenge Coin [][+SilverChallengeCoin][BLACK]\n\n";
+                description += "- Silver Challenge Coin [][+SilverChallengeCoin][BLACK]\n\n";
             } else if (eventRules.acceptsChallengeCoin) {
-                description += "Gold Challenge Coin [][+ChallengeCoin][BLACK]\n\n";
+                description += "- Gold Challenge Coin [][+ChallengeCoin][BLACK]\n\n";
             } else {
                 description += "\n";
             }
             description += String.format("Prizes\nChampion: Keep drafted deck\n2+ round wins: Challenge Coin \n1+ round wins: %s Booster, %s Booster\n0 round wins: %s Booster", rewardPacks[0].getComment(), rewardPacks[1].getComment(), rewardPacks[2].getComment());
-        }
-        else if (format.equals(AdventureEventController.EventFormat.Jumpstart)) {
+        } else if (format.equals(AdventureEventController.EventFormat.Jumpstart)) {
             description = "Event Type: Jumpstart\n";
             description += "Block: " + getCardBlock() + "\n";
             description += "Competition Style: " + participants.length + " players, matches played as best of " + eventRules.gamesPerMatch + ", " + (getPairingDescription()) + "\n\n";
-            description += String.format("Entry Fee (incl. reputation)\nGold %d[][+Gold][BLACK]\nMana Shards %d[][+Shards][BLACK]\n", Math.round(eventRules.goldToEnter * changes.getTownPriceModifier()), Math.round(eventRules.shardsToEnter  * changes.getTownPriceModifier()));
+            description += String.format("Pay 1 Entry Fee\n- Gold %d[][+Gold][BLACK]\n- Mana Shards %d[][+Shards][BLACK]\n", Math.round(eventRules.goldToEnter * townPriceModifier), Math.round(eventRules.shardsToEnter * townPriceModifier));
             if (eventRules.acceptsBronzeChallengeCoin) {
-                description += "Bronze Challenge Coin [][+BronzeChallengeCoin][BLACK]\n\n";
+                description += "- Bronze Challenge Coin [][+BronzeChallengeCoin][BLACK]\n\n";
             } else if (eventRules.acceptsSilverChallengeCoin) {
-                description += "Silver Challenge Coin [][+SilverChallengeCoin][BLACK]\n\n";
+                description += "- Silver Challenge Coin [][+SilverChallengeCoin][BLACK]\n\n";
             } else if (eventRules.acceptsChallengeCoin) {
-                description += "Gold Challenge Coin [][+ChallengeCoin][BLACK]\n\n";
+                description += "- Gold Challenge Coin [][+ChallengeCoin][BLACK]\n\n";
             } else {
                 description += "\n";
             }
-            description += String.format("Prizes\n3 round wins: 500 gold\n2 round wins: 200 gold\n1 round win: 100 gold\n");
-            description += "Finishing event will award an unsellable copy of each card in your Jumpstart deck.";
+            description += "Prizes\n3 round wins: 500 gold\n2 round wins: 200 gold\n1 round win: 100 gold\n";
+            description += "Participating in this event will award a valueless copy of each card in your Jumpstart deck.";
         }
         return description;
     }
@@ -611,7 +664,7 @@ public class AdventureEventData implements Serializable {
         public Image getAvatar() {
             if (sprite == null) {
                 EnemyData data = WorldData.getEnemy(enemyDataName);
-                if (data == null){
+                if (data == null) {
                     //enemyDataName was not found, replace with something valid.
                     enemyDataName = Aggregates.random(WorldData.getAllEnemies()).getName();
                 }
@@ -649,10 +702,12 @@ public class AdventureEventData implements Serializable {
         public Deck getDeck() {
             return registeredDeck == null ? Current.player().getSelectedDeck() : registeredDeck;
         }
+
         @Override
         public String getName() {
             return Current.player().getName();
         }
+
         @Override
         public Image getAvatar() {
             return new Image(Current.player().avatar());
@@ -683,12 +738,12 @@ public class AdventureEventData implements Serializable {
             this(format, PairingStyle.SingleElimination, localPriceModifier);
         }
 
-        public AdventureEventRules(AdventureEventController.EventFormat format, PairingStyle pairingStyle, float localPriceModifier){
+        public AdventureEventRules(AdventureEventController.EventFormat format, PairingStyle pairingStyle, float localPriceModifier) {
             int baseGoldEntry = 99999;
             int baseShardEntry = 9999;
             this.pairingStyle = pairingStyle;
 
-            switch (format){
+            switch (format) {
                 case Constructed:
                     acceptsSilverChallengeCoin = true;
                     acceptsChallengeCoin = false;

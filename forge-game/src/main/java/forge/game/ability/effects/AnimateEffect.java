@@ -31,12 +31,7 @@ public class AnimateEffect extends AnimateEffectBase {
         String animateRemembered = null;
         String animateImprinted = null;
 
-        //if host is not on the battlefield don't apply
-        if (("UntilHostLeavesPlay".equals(duration) || "UntilLoseControlOfHost".equals(duration))
-                && !source.isInPlay()) {
-            return;
-        }
-        if ("UntilLoseControlOfHost".equals(duration) && source.getController() != sa.getActivatingPlayer()) {
+        if (!checkValidDuration(duration, sa)) {
             return;
         }
 
@@ -106,7 +101,7 @@ public class AnimateEffect extends AnimateEffectBase {
         }
 
         // colors to be added or changed to
-        ColorSet finalColors = ColorSet.getNullColor();
+        ColorSet finalColors = null;
         if (sa.hasParam("Colors")) {
             final String colors = sa.getParam("Colors");
             if (colors.equals("ChosenColor")) {
@@ -168,41 +163,49 @@ public class AnimateEffect extends AnimateEffectBase {
             }
         }
 
-        for (final Card c : tgts) {
+        for (final Card tgtC : tgts) {
             // CR 702.26e
-            if (c.isPhasedOut()) {
+            if (tgtC.isPhasedOut()) {
                 continue;
             }
 
-            doAnimate(c, sa, power, toughness, types, removeTypes, finalColors,
+            final Card gameCard = game.getCardState(tgtC, null);
+            // gameCard is LKI in that case, the card is not in game anymore
+            // or the timestamp did change
+            // this should check Self too
+            if (gameCard == null || !tgtC.equalsWithGameTimestamp(gameCard) || gameCard.isPhasedOut()) {
+                continue;
+            }
+
+            doAnimate(gameCard, sa, power, toughness, types, removeTypes, finalColors,
                     keywords, removeKeywords, hiddenKeywords,
                     abilities, triggers, replacements, stAbs, timestamp, duration);
 
             if (sa.hasParam("Name")) {
-                c.addChangedName(sa.getParam("Name"), false, timestamp, 0);
+                gameCard.addChangedName(sa.getParam("Name"), false, timestamp, 0);
             }
 
             // give sVars
             if (!sVarsMap.isEmpty()) {
-                c.addChangedSVars(sVarsMap, timestamp, 0);
+                gameCard.addChangedSVars(sVarsMap, timestamp, 0);
             }
 
             // give Remembered
             if (animateRemembered != null) {
-                c.addRemembered(AbilityUtils.getDefinedObjects(source, animateRemembered, sa));
+                gameCard.addRemembered(AbilityUtils.getDefinedObjects(source, animateRemembered, sa));
             }
 
             // give Imprinted
             if (animateImprinted != null) {
-                c.addImprintedCards(AbilityUtils.getDefinedCards(source, animateImprinted, sa));
+                gameCard.addImprintedCards(AbilityUtils.getDefinedCards(source, animateImprinted, sa));
             }
 
-            if (sa.hasParam("Crew")) {
-                c.becomesCrewed(sa);
-                c.updatePowerToughnessForView();
+            if (sa.isCrew()) {
+                gameCard.becomesCrewed(sa);
+                gameCard.updatePTforView();
             }
 
-            game.fireEvent(new GameEventCardStatsChanged(c));
+            game.fireEvent(new GameEventCardStatsChanged(gameCard));
         }
 
         if (sa.hasParam("AtEOT") && !tgts.isEmpty()) {
@@ -234,6 +237,7 @@ public class AnimateEffect extends AnimateEffectBase {
         sb.append(sa.hasParam("DefinedDesc") ? sa.getParam("DefinedDesc") : Lang.joinHomogenous(tgts));
         sb.append(" ");
         int initial = sb.length();
+        boolean becomes = false;
 
         Integer power = null;
         if (sa.hasParam("Power")) {
@@ -248,6 +252,7 @@ public class AnimateEffect extends AnimateEffectBase {
         final List<String> types = Lists.newArrayList();
         if (sa.hasParam("Types")) {
             types.addAll(Arrays.asList(sa.getParam("Types").split(",")));
+            becomes = true;
         }
         final List<String> keywords = Lists.newArrayList();
         if (sa.hasParam("Keywords")) {
@@ -264,6 +269,7 @@ public class AnimateEffect extends AnimateEffectBase {
         final List<String> colors =Lists.newArrayList();
         if (sa.hasParam("Colors")) {
             colors.addAll(Arrays.asList(sa.getParam("Colors").split(",")));
+            becomes = true;
         }
 
         // if power is -1, we'll assume it's not just setting toughness
@@ -276,9 +282,9 @@ public class AnimateEffect extends AnimateEffectBase {
             } else {
                 sb.append("toughness ").append(toughness).append(" ");
             }
-        } else if (sb.length() > initial) {
-            sb.append(justOne ? "becomes " : "become ");
         }
+        if (sb.length() > initial && becomes) sb.append(" and ");
+        if (becomes) sb.append(justOne ? "becomes " : "become ");
 
         if (colors.contains("ChosenColor")) {
             sb.append("color of that player's choice");

@@ -1,18 +1,16 @@
 package forge.game.card;
 
 
-import java.util.List;
-import java.util.Map;
-
-import org.apache.commons.lang3.tuple.Pair;
-
 import com.google.common.collect.Lists;
-
 import forge.game.CardTraitBase;
 import forge.game.GameEntity;
 import forge.game.player.Player;
 import forge.game.zone.ZoneType;
 import forge.util.collect.FCollection;
+import org.apache.commons.lang3.tuple.Pair;
+
+import java.util.List;
+import java.util.Map;
 
 /** 
  * TODO: Write javadoc for this type.
@@ -20,6 +18,7 @@ import forge.util.collect.FCollection;
  */
 public class CardDamageHistory {
 
+    private int attacksThisGame = 0;
     // amount only needed for Kytheon
     private int creatureAttackedThisCombat = 0;
     private boolean creatureBlockedThisCombat = false;
@@ -51,14 +50,13 @@ public class CardDamageHistory {
      * <p>
      * Setter for the field <code>creatureAttackedThisCombat</code>.
      * </p>
-     * 
-     * @param hasAttacked
-     *            a boolean.
+     *
      */
     public final void setCreatureAttackedThisCombat(GameEntity defender, int numOtherAttackers) {
         this.creatureAttackedThisCombat = 1 + numOtherAttackers;
 
         if (defender != null) {
+            this.attacksThisGame++;
             attackedThisTurn.add(defender);
             if (defender instanceof Card) {
                 final Card def = (Card) defender;
@@ -94,6 +92,10 @@ public class CardDamageHistory {
     public final boolean hasAttackedBattleThisTurn() {
         return this.attackedBattleThisTurn;
     }
+
+    public final int getAttacksThisGame() {
+        return this.attacksThisGame;
+    }
     /**
      * <p>
      * Setter for the field <code>creatureAttackedLastTurn</code>.
@@ -122,9 +124,7 @@ public class CardDamageHistory {
      * <p>
      * Setter for the field <code>NotAttackedSinceLastUpkeepOf</code>.
      * </p>
-     * 
-     * @param value
-     *            a boolean.
+     *
      */
     public final void setNotAttackedSinceLastUpkeepOf(final Player p) {
         NotAttackedSinceLastUpkeepOf.add(p);
@@ -143,14 +143,7 @@ public class CardDamageHistory {
     public final boolean hasAttackedSinceLastUpkeepOf(final Player p) {
         return !NotAttackedSinceLastUpkeepOf.contains(p);
     }
-    /**
-     * <p>
-     * Setter for the field <code>NotAttackedSinceLastUpkeepOf</code>.
-     * </p>
-     * 
-     * @param value
-     *            a boolean.
-     */
+
     public final void setNotBlockedSinceLastUpkeepOf(final Player p) {
         NotBlockedSinceLastUpkeepOf.add(p);
     }
@@ -168,14 +161,7 @@ public class CardDamageHistory {
     public final boolean hasBlockedSinceLastUpkeepOf(final Player p) {
         return !NotBlockedSinceLastUpkeepOf.contains(p);
     }
-    /**
-     * <p>
-     * Setter for the field <code>NotAttackedSinceLastUpkeepOf</code>.
-     * </p>
-     * 
-     * @param value
-     *            a boolean.
-     */
+
     public final void setNotBeenBlockedSinceLastUpkeepOf(final Player p) {
         NotBeenBlockedSinceLastUpkeepOf.add(p);
     }
@@ -242,10 +228,7 @@ public class CardDamageHistory {
     public final FCollection<GameEntity> getThisGameDamaged() {
         return damagedThisGame;
     }
-    /**
-     * TODO: Write javadoc for this method.
-     * @param player
-     */
+
     public void registerDamage(int damage, boolean isCombat, Card sourceLKI, GameEntity target, Map<Integer, Card> lkiCache) {
         if (damage <= 0) {
             return;
@@ -262,7 +245,8 @@ public class CardDamageHistory {
         Pair<Integer, Boolean> dmg = Pair.of(damage, isCombat);
         damageDoneThisTurn.add(dmg);
         target.receiveDamage(dmg);
-        sourceLKI.getGame().addGlobalDamageHistory(this, dmg, sourceLKI.isLKI() ? sourceLKI : CardUtil.getLKICopy(sourceLKI, lkiCache), CardUtil.getLKICopy(target, lkiCache));
+
+        sourceLKI.getGame().addGlobalDamageHistory(this, dmg, sourceLKI.isLKI() ? sourceLKI : CardCopyService.getLKICopy(sourceLKI, lkiCache), CardCopyService.getLKICopy(target, lkiCache));
     }
 
     public int getDamageDoneThisTurn(Boolean isCombat, boolean anyIsEnough, String validSourceCard, String validTargetEntity, Card source, Player sourceController, CardTraitBase ctb) {
@@ -309,5 +293,8 @@ public class CardDamageHistory {
 
     public void endCombat() {
         damagedThisCombat.clear();
+        setCreatureAttackedThisCombat(null, -1);
+        setCreatureBlockedThisCombat(false);
+        setCreatureGotBlockedThisCombat(false);
     }
 }

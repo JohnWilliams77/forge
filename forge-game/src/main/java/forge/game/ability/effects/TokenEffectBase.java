@@ -5,9 +5,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.google.common.collect.Iterables;
+import forge.card.GamePieceType;
+import forge.game.card.*;
 import org.apache.commons.lang3.mutable.MutableBoolean;
 
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
@@ -15,16 +17,10 @@ import com.google.common.collect.Table;
 import forge.GameCommand;
 import forge.game.Game;
 import forge.game.GameEntity;
+import forge.game.GameEntityCounterTable;
 import forge.game.ability.AbilityKey;
 import forge.game.ability.AbilityUtils;
 import forge.game.ability.SpellAbilityEffect;
-import forge.game.card.Card;
-import forge.game.card.CardCollection;
-import forge.game.card.CardFactory;
-import forge.game.card.CardUtil;
-import forge.game.card.CardZoneTable;
-import forge.game.card.CounterType;
-import forge.game.card.TokenCreateTable;
 import forge.game.card.token.TokenInfo;
 import forge.game.event.GameEventCardStatsChanged;
 import forge.game.player.Player;
@@ -38,6 +34,9 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
     protected TokenCreateTable createTokenTable(Iterable<Player> players, String[] tokenScripts, final int finalAmount, final SpellAbility sa) {
         TokenCreateTable tokenTable = new TokenCreateTable();
         for (final Player owner : players) {
+            if (!owner.isInGame()) {
+                continue;
+            }
             for (String script : tokenScripts) {
                 final Card result = TokenInfo.getProtoType(script, sa, owner);
 
@@ -76,10 +75,11 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
         final Card host = sa.getHostCard();
         final Game game = host.getGame();
         long timestamp = game.getNextTimestamp();
+        Set<Card> originalTokens = Sets.newHashSet(tokenTable.columnKeySet());
 
         // support PlayerCollection for affected
         Set<Player> toRemove = Sets.newHashSet();
-        for (Player p : Sets.newHashSet(tokenTable.rowKeySet())) {
+        for (Player p : Lists.newArrayList(tokenTable.rowKeySet())) {
             final Map<AbilityKey, Object> repParams = AbilityKey.mapFromAffected(p);
             repParams.put(AbilityKey.Token, tokenTable);
             repParams.put(AbilityKey.Cause, sa);
@@ -115,29 +115,34 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
             int cellAmount = c.getValue();
 
             for (int i = 0; i < cellAmount; i++) {
-                Card tok = CardFactory.copyCard(prototype, true);
+                Card tok = new CardCopyService(prototype).copyCard(true);
+                // disconnect from prototype
+                tok.getStates().forEach(cs -> tok.getState(cs).resetOriginalHost(prototype));
                 // Crafty Cutpurse would change under which control it does enter,
                 // but it shouldn't change who creates the token
                 tok.setOwner(creator);
                 if (creator != controller) {
                     tok.setController(controller, timestamp);
                 }
-                tok.setTimestamp(timestamp);
-                tok.setToken(true);
+                tok.setGameTimestamp(timestamp);
+                tok.setGamePieceType(GamePieceType.TOKEN);
 
                 // do effect stuff with the token
                 if (sa.hasParam("TokenTapped")) {
                     tok.setTapped(true);
                 }
 
-                if (!sa.hasParam("AttachAfter") && sa.hasParam("AttachedTo") && !attachTokenTo(tok, sa)) {
+                // CR 303.4i
+                if (!sa.hasParam("AttachAfter") && sa.hasParam("AttachedTo") && !attachTokenTo(tok, sa) && tok.isAura()) {
                     continue;
                 }
 
                 if (sa.hasParam("WithCountersType")) {
                     CounterType cType = CounterType.getType(sa.getParam("WithCountersType"));
                     int cAmount = AbilityUtils.calculateAmount(host, sa.getParamOrDefault("WithCountersAmount", "1"), sa);
-                    tok.addEtbCounter(cType, cAmount, creator);
+                    GameEntityCounterTable table = new GameEntityCounterTable();
+                    table.put(creator, tok, cType, cAmount);
+                    moveParams.put(AbilityKey.CounterTable, table);
                 }
 
                 if (sa.hasParam("AddTriggersFrom")) {
@@ -149,14 +154,13 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
                     }
                 }
 
-                if (clone) {
+                if (clone || prototype.getCopiedPermanent() != null) {
                     tok.setCopiedPermanent(prototype);
                 }
 
-                Card lki = CardUtil.getLKICopy(tok);
+                Card lki = CardCopyService.getLKICopy(tok);
                 moveParams.put(AbilityKey.CardLKI, lki);
 
-                // Should this be catching the Card that's returned?
                 Card moved = game.getAction().moveToPlay(tok, sa, moveParams);
                 if (moved == null || moved.getZone() == null) {
                     // in case token can't enter the battlefield, it isn't created
@@ -173,7 +177,7 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
                 }
 
                 if (!pumpKeywords.isEmpty()) {
-                    moved.addChangedCardKeywords(pumpKeywords, Lists.newArrayList(), false, timestamp, 0);
+                    moved.addChangedCardKeywords(pumpKeywords, Lists.newArrayList(), false, timestamp, null);
                     addPumpUntil(sa, moved, timestamp);
                 }
 
@@ -181,7 +185,7 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
                     addSelfTrigger(sa, sa.getParam("AtEOTTrig"), moved);
                 }
 
-                if (addToCombat(moved, tok.getController(), sa, "TokenAttacking", "TokenBlocking")) {
+                if (addToCombat(moved, sa, "TokenAttacking", "TokenBlocking")) {
                     combatChanged.setTrue();
                 }
 
@@ -192,6 +196,10 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
                 moved.updateStateForView();
 
                 if (sa.hasParam("RememberTokens")) {
+                    host.addRemembered(moved);
+                }
+                // used for some reflexive trigger
+                if (sa.hasParam("RememberOriginalTokens") && originalTokens.contains(prototype)) {
                     host.addRemembered(moved);
                 }
                 if (sa.hasParam("ImprintTokens")) {
@@ -226,7 +234,7 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
 
         if (aTo != null) {
             // check what the token would be on the battlefield
-            Card lki = CardUtil.getLKICopy(tok);
+            Card lki = CardCopyService.getLKICopy(tok);
 
             lki.setLastKnownZone(tok.getController().getZone(ZoneType.Battlefield));
 
@@ -260,7 +268,7 @@ public abstract class TokenEffectBase extends SpellAbilityEffect {
         return false;
     }
 
-    protected void addPumpUntil(SpellAbility sa, final Card c, long timestamp) {
+    public static void addPumpUntil(SpellAbility sa, final Card c, long timestamp) {
         if (!sa.hasParam("PumpDuration")) {
             return;
         }

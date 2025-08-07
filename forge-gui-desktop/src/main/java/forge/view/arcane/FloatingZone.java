@@ -18,7 +18,6 @@
 package forge.view.arcane;
 
 import java.awt.event.MouseEvent;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
@@ -31,11 +30,11 @@ import forge.game.player.PlayerView;
 import forge.game.zone.ZoneType;
 import forge.gui.FThreads;
 import forge.localinstance.properties.ForgePreferences.FPref;
-import forge.localinstance.skin.FSkinProp;
 import forge.screens.match.CMatchUI;
 import forge.toolbox.FMouseAdapter;
 import forge.toolbox.FScrollPane;
 import forge.toolbox.FSkin;
+import forge.toolbox.special.PlayerDetailsPanel;
 import forge.util.Localizer;
 import forge.util.collect.FCollection;
 
@@ -60,11 +59,7 @@ public class FloatingZone extends FloatingCardArea {
             return false;
         }
 
-        FThreads.invokeInEdtNowOrLater(new Runnable() {
-            @Override public void run() {
-                cardArea.showWindow();
-            }
-        });
+        FThreads.invokeInEdtNowOrLater(cardArea::showWindow);
 
         return true;
     }
@@ -76,11 +71,7 @@ public class FloatingZone extends FloatingCardArea {
             return false;
         }
 
-        FThreads.invokeInEdtNowOrLater(new Runnable() {
-            @Override public void run() {
-                cardArea.hideWindow();
-            }
-        });
+        FThreads.invokeInEdtNowOrLater(cardArea::hideWindow);
 
         return true;
     }
@@ -140,16 +131,13 @@ public class FloatingZone extends FloatingCardArea {
     protected boolean sortedByName = false;
     protected FCollection<CardView> cardList;
 
-    private final Comparator<CardView> comp = new Comparator<CardView>() {
-        @Override
-        public int compare(CardView lhs, CardView rhs) {
-            if (!getMatchUI().mayView(lhs)) {
-                return (getMatchUI().mayView(rhs)) ? 1 : 0;
-            } else if (!getMatchUI().mayView(rhs)) {
-                return -1;
-            } else {
-                return lhs.getName().compareTo(rhs.getName());
-            }
+    private final Comparator<CardView> comp = (lhs, rhs) -> {
+        if (!getMatchUI().mayView(lhs)) {
+            return (getMatchUI().mayView(rhs)) ? 1 : 0;
+        } else if (!getMatchUI().mayView(rhs)) {
+            return -1;
+        } else {
+            return lhs.getName().compareTo(rhs.getName());
         }
     };
 
@@ -158,7 +146,7 @@ public class FloatingZone extends FloatingCardArea {
         if (zoneCards != null) {
             cardList = new FCollection<>(zoneCards);
             if (sortedByName) {
-                Collections.sort(cardList, comp);
+                cardList.sort(comp);
             }
             return cardList;
         } else {
@@ -172,35 +160,7 @@ public class FloatingZone extends FloatingCardArea {
         window.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE); //pfps so that old content does not reappear?
         getScrollPane().setViewportView(this);
         setOpaque(false);
-        switch (zone0) {
-            case Exile:
-                window.setIconImage(FSkin.getImage(FSkinProp.IMG_ZONE_EXILE));
-                break;
-            case Graveyard:
-                window.setIconImage(FSkin.getImage(FSkinProp.IMG_ZONE_GRAVEYARD));
-                break;
-            case Hand:
-                window.setIconImage(FSkin.getImage(FSkinProp.IMG_ZONE_HAND));
-                break;
-            case Library:
-                window.setIconImage(FSkin.getImage(FSkinProp.IMG_ZONE_LIBRARY));
-                break;
-            case Flashback:
-                window.setIconImage(FSkin.getImage(FSkinProp.IMG_ZONE_FLASHBACK));
-                break;
-            case Command:
-                window.setIconImage(FSkin.getImage(FSkinProp.IMG_PLANESWALKER));
-                break;
-            case Ante:
-                window.setIconImage(FSkin.getImage(FSkinProp.IMG_ZONE_ANTE));
-                break;
-            case Sideboard:
-                window.setIconImage(FSkin.getImage(FSkinProp.IMG_ZONE_SIDEBOARD));
-                break;
-            default:
-                locPref = null;
-                break;
-        }
+        window.setIconImage(FSkin.getImage(PlayerDetailsPanel.iconFromZone(zone0)));
         zone = zone0;
         setPlayer(player0);
         setVertical(true);
@@ -220,7 +180,7 @@ public class FloatingZone extends FloatingCardArea {
         if (!hasBeenShown) {
             getWindow().getTitleBar().addMouseListener(new FMouseAdapter() {
                 @Override
-                public final void onRightClick(final MouseEvent e) {
+                public void onRightClick(final MouseEvent e) {
                     toggleSorted();
                 }
             });

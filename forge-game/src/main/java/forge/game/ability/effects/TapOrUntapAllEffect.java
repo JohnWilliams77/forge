@@ -1,18 +1,24 @@
 package forge.game.ability.effects;
 
+import com.google.common.collect.Maps;
 
 import forge.game.Game;
+import forge.game.ability.AbilityKey;
 import forge.game.ability.AbilityUtils;
 import forge.game.ability.SpellAbilityEffect;
 import forge.game.card.Card;
+import forge.game.card.CardCollection;
 import forge.game.card.CardCollectionView;
 import forge.game.card.CardLists;
 import forge.game.player.Player;
 import forge.game.player.PlayerController;
 import forge.game.spellability.SpellAbility;
+import forge.game.trigger.TriggerType;
 import forge.game.zone.ZoneType;
 import forge.util.Lang;
 import forge.util.Localizer;
+
+import java.util.Map;
 
 public class TapOrUntapAllEffect extends SpellAbilityEffect {
 
@@ -60,15 +66,38 @@ public class TapOrUntapAllEffect extends SpellAbilityEffect {
 
         toTap = sa.getActivatingPlayer().getController().chooseBinary(sa, sb.toString(), PlayerController.BinaryChoiceType.TapOrUntap);
 
+        CardCollection tapped = new CardCollection();
+        CardCollection untapped = new CardCollection();
         for (final Card tgtC : validCards) {
             if (!tgtC.isInPlay()) {
                 continue;
             }
-            if (toTap) {
-                tgtC.tap(true);
-            } else {
-                tgtC.untap(true);
+
+            // check if the object is still in game or if it was moved
+            Card gameCard = game.getCardState(tgtC, null);
+            // gameCard is LKI in that case, the card is not in game anymore
+            // or the timestamp did change
+            // this should check Self too
+            if (gameCard == null || !tgtC.equalsWithGameTimestamp(gameCard)) {
+                continue;
             }
+            if (toTap) {
+                if (gameCard.tap(true, sa, activator)) tapped.add(gameCard);
+            } else {
+                if (gameCard.untap()) untapped.add(gameCard);
+            }
+        }
+        if (!tapped.isEmpty()) {
+            final Map<AbilityKey, Object> runParams = AbilityKey.newMap();
+            runParams.put(AbilityKey.Cards, tapped);
+            game.getTriggerHandler().runTrigger(TriggerType.TapAll, runParams, false);
+        }
+        if (!untapped.isEmpty()) {
+            final Map<AbilityKey, Object> runParams = AbilityKey.newMap();
+            final Map<Player, CardCollection> map = Maps.newHashMap();
+            map.put(activator, untapped);
+            runParams.put(AbilityKey.Map, map);
+            game.getTriggerHandler().runTrigger(TriggerType.UntapAll, runParams, false);
         }
     }
 

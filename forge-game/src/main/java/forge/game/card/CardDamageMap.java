@@ -3,26 +3,25 @@
  */
 package forge.game.card;
 
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-
 import com.google.common.collect.ForwardingTable;
 import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
-
 import forge.game.CardTraitBase;
 import forge.game.Game;
 import forge.game.GameEntity;
 import forge.game.GameObjectPredicates;
 import forge.game.ability.AbilityKey;
+import forge.game.event.GameEventPlayerStatsChanged;
 import forge.game.player.Player;
 import forge.game.player.PlayerCollection;
 import forge.game.spellability.SpellAbility;
 import forge.game.trigger.TriggerType;
+
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class CardDamageMap extends ForwardingTable<Card, GameEntity, Integer> {
     private Table<Card, GameEntity, Integer> dataMap = HashBasedTable.create();
@@ -48,6 +47,11 @@ public class CardDamageMap extends ForwardingTable<Card, GameEntity, Integer> {
                 runParams.put(AbilityKey.IsCombatDamage, isCombat);
 
                 ge.getGame().getTriggerHandler().runTrigger(TriggerType.DamagePreventedOnce, runParams, false);
+
+                ge.getView().updatePreventNextDamage(ge);
+                if (ge instanceof Player) {
+                    ge.getGame().fireEvent(new GameEventPlayerStatsChanged((Player) ge, false));
+                }
             }
         }
     }
@@ -108,6 +112,7 @@ public class CardDamageMap extends ForwardingTable<Card, GameEntity, Integer> {
     public void triggerExcessDamage(boolean isCombat, Map<Card, Integer> lethalDamage, final Game game, final SpellAbility cause, final Map<Integer, Card> lkiCache) {
         int storedExcess = 0;
 
+        CardCollection damagedList = new CardCollection();
         for (Entry<Card, Integer> damaged : lethalDamage.entrySet()) {
             int sum = 0;
             for (Integer i : this.column(damaged.getKey()).values()) {
@@ -122,26 +127,37 @@ public class CardDamageMap extends ForwardingTable<Card, GameEntity, Integer> {
             // also update the DamageHistory, but overwrite previous excess outcomes
             // because Rith, Liberated Primeval cares about who controlled it at this moment
             lkiCache.get(damaged.getKey().getId()).setHasBeenDealtExcessDamageThisTurn(excess > 0);
-            if (excess > 0) {
-                if (cause != null && cause.hasParam("ExcessSVar")) {
-                    if ((!cause.hasParam("ExcessSVarCondition") || damaged.getKey().isValid(cause.getParam("ExcessSVarCondition"), cause.getActivatingPlayer(), cause.getHostCard(), cause))
-                            && (!cause.hasParam("ExcessSVarTargeted") || damaged.getKey().equals(cause.getTargetCard()))) {
-                        storedExcess += excess;
-                    }
-                }
 
-                damaged.getKey().setHasBeenDealtExcessDamageThisTurn(true);
-                // Run triggers
-                final Map<AbilityKey, Object> runParams = AbilityKey.newMap();
-                runParams.put(AbilityKey.DamageTarget, damaged.getKey());
-                runParams.put(AbilityKey.DamageAmount, excess);
-                runParams.put(AbilityKey.IsCombatDamage, isCombat);
-                game.getTriggerHandler().runTrigger(TriggerType.ExcessDamage, runParams, false);
+            if (excess <= 0) {
+                continue;
             }
+
+            if (cause != null && cause.hasParam("ExcessSVar")
+                    && (!cause.hasParam("ExcessSVarCondition") || damaged.getKey().isValid(cause.getParam("ExcessSVarCondition"), cause.getActivatingPlayer(), cause.getHostCard(), cause))) {
+                storedExcess += excess;
+            }
+
+            damaged.getKey().setHasBeenDealtExcessDamageThisTurn(true);
+            damaged.getKey().logExcessDamage(excess);
+
+            final Map<AbilityKey, Object> runParams = AbilityKey.newMap();
+            runParams.put(AbilityKey.DamageTarget, damaged.getKey());
+            runParams.put(AbilityKey.DamageAmount, excess);
+            runParams.put(AbilityKey.IsCombatDamage, isCombat);
+            game.getTriggerHandler().runTrigger(TriggerType.ExcessDamage, runParams, false);
+
+            damagedList.add(damaged.getKey());
         }
 
         if (cause != null && cause.hasParam("ExcessSVar")) {
             cause.setSVar(cause.getParam("ExcessSVar"), Integer.toString(storedExcess));
+        }
+
+        if (!damagedList.isEmpty()) {
+            final Map<AbilityKey, Object> runParams = AbilityKey.newMap();
+            runParams.put(AbilityKey.DamageTargets, damagedList);
+            runParams.put(AbilityKey.IsCombatDamage, isCombat);
+            game.getTriggerHandler().runTrigger(TriggerType.ExcessDamageAll, runParams, false);
         }
     }
 
@@ -172,10 +188,10 @@ public class CardDamageMap extends ForwardingTable<Card, GameEntity, Integer> {
         Set<Card> filteredSource = null;
         Set<GameEntity> filteredTarget = null;
         if (validSource != null) {
-            filteredSource = Sets.newHashSet(Iterables.filter(rowKeySet(), GameObjectPredicates.restriction(validSource.split(","), host.getController(), host, sa)));
+            filteredSource = rowKeySet().stream().filter(GameObjectPredicates.restriction(validSource.split(","), host.getController(), host, sa)).collect(Collectors.toSet());
         }
         if (validTarget != null) {
-            filteredTarget = Sets.newHashSet(Iterables.filter(columnKeySet(), GameObjectPredicates.restriction(validTarget.split(","), host.getController(), host, sa)));
+            filteredTarget = columnKeySet().stream().filter(GameObjectPredicates.restriction(validTarget.split(","), host.getController(), host, sa)).collect(Collectors.toSet());
         }
 
         for (Table.Cell<Card, GameEntity, Integer> c : cellSet()) {

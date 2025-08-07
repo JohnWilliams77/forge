@@ -10,10 +10,13 @@ import forge.game.ability.AbilityUtils;
 import forge.game.ability.SpellAbilityEffect;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
-import forge.game.card.CardCollectionView;
+import forge.game.card.CardLists;
+import forge.game.card.CardPredicates;
 import forge.game.card.CardZoneTable;
 import forge.game.event.GameEventCombatChanged;
+import forge.game.keyword.Keyword;
 import forge.game.player.Player;
+import forge.game.replacement.ReplacementType;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.PlayerZone;
 import forge.game.zone.ZoneType;
@@ -21,6 +24,8 @@ import forge.util.Lang;
 import forge.util.Localizer;
 import forge.util.MyRandom;
 import org.apache.commons.lang3.StringUtils;
+
+import com.google.common.collect.Maps;
 
 public class DigUntilEffect extends SpellAbilityEffect {
 
@@ -99,11 +104,6 @@ public class DigUntilEffect extends SpellAbilityEffect {
         final Card host = sa.getHostCard();
         final Game game = host.getGame();
 
-        String[] type = new String[]{"Card"};
-        if (sa.hasParam("Valid")) {
-            type = sa.getParam("Valid").split(",");
-        }
-
         int untilAmount = 1;
         if (sa.hasParam("Amount")) {
             untilAmount = AbilityUtils.calculateAmount(host, sa.getParam("Amount"), sa);
@@ -115,10 +115,16 @@ public class DigUntilEffect extends SpellAbilityEffect {
             maxRevealed = AbilityUtils.calculateAmount(host, sa.getParam("MaxRevealed"), sa);
         }
 
+        String[] type = new String[]{"Card"};
+        if (sa.hasParam("Valid")) {
+            type = sa.getParam("Valid").split(",");
+        }
+
         final boolean remember = sa.hasParam("RememberFound");
         final boolean imprint = sa.hasParam("ImprintFound");
 
-        final ZoneType foundDest = ZoneType.smartValueOf(sa.getParam("FoundDestination"));
+        ZoneType foundDest = ZoneType.smartValueOf(sa.getParam("FoundDestination"));
+        final ZoneType optionalNoDestination = ZoneType.smartValueOf(sa.getParamOrDefault("OptionalNoDestination", "None"));
         final int foundLibPos = AbilityUtils.calculateAmount(host, sa.getParam("FoundLibraryPosition"), sa);
         final ZoneType revealedDest = ZoneType.smartValueOf(sa.getParam("RevealedDestination"));
         final int revealedLibPos = AbilityUtils.calculateAmount(host, sa.getParam("RevealedLibraryPosition"), sa);
@@ -130,10 +136,12 @@ public class DigUntilEffect extends SpellAbilityEffect {
         final boolean optionalFound = sa.hasParam("OptionalFoundMove");
         boolean sequential = digSite == ZoneType.Library && revealedDest != null && revealedDest.equals(foundDest);
 
-        CardZoneTable table = new CardZoneTable();
+        CardZoneTable table = new CardZoneTable(game.copyLastStateBattlefield(), game.copyLastStateGraveyard());
+        CardZoneTable tableSeq = null;
+        if (!sequential) {
+            tableSeq = new CardZoneTable(table.getLastStateBattlefield(), table.getLastStateGraveyard());
+        }
         boolean combatChanged = false;
-        CardCollectionView lastStateBattlefield = game.copyLastStateBattlefield();
-        CardCollectionView lastStateGraveyard = game.copyLastStateGraveyard();
 
         for (final Player p : getTargetPlayers(sa)) {
             if (p == null || !p.isInGame()) {
@@ -146,7 +154,6 @@ public class DigUntilEffect extends SpellAbilityEffect {
             CardCollection revealed = new CardCollection();
 
             final PlayerZone library = p.getZone(digSite);
-
             final int maxToDig = maxRevealed != null ? maxRevealed : library.size();
 
             for (int i = 0; i < maxToDig; i++) {
@@ -191,38 +198,58 @@ public class DigUntilEffect extends SpellAbilityEffect {
                 while (itr.hasNext()) {
                     final Card c = itr.next();
 
-                    final ZoneType origin = c.getZone().getZoneType();
-                    if (optionalFound && !p.getController().confirmAction(sa, null,
-                            Localizer.getInstance().getMessage("lblDoYouWantPutCardToZone", foundDest.getTranslatedName()), null)) {
-                        itr.remove();
-                        continue;
+                    if (optionalFound &&
+                            !p.getController().confirmAction(sa, null, Localizer.getInstance().getMessage("lblDoYouWantPutCardToZone", foundDest.getTranslatedName()), null)) {
+                        if (ZoneType.None.equals(optionalNoDestination)) {
+                            itr.remove();
+                            continue;
+                        }
+                        foundDest = optionalNoDestination;
                     }
 
+                    if (sequential) {
+                        tableSeq = new CardZoneTable(table.getLastStateBattlefield(), table.getLastStateGraveyard());
+                    }
                     Map<AbilityKey, Object> moveParams = AbilityKey.newMap();
-                    moveParams.put(AbilityKey.LastStateBattlefield, lastStateBattlefield);
-                    moveParams.put(AbilityKey.LastStateGraveyard, lastStateGraveyard);
-                    Card m = null;
+                    AbilityKey.addCardZoneTableParams(moveParams, tableSeq);
+
                     if (foundDest.equals(ZoneType.Battlefield)) {
+                        moveParams.put(AbilityKey.SimultaneousETB, new CardCollection(c));
                         if (sa.hasParam("GainControl")) {
                             c.setController(sa.getActivatingPlayer(), game.getNextTimestamp());
+                        }
+                        if (sa.hasParam("AttachedTo")) {
+                            CardCollection list = AbilityUtils.getDefinedCards(c, sa.getParam("AttachedTo"), sa);
+                            if (list.isEmpty()) {
+                                list = CardLists.getValidCards(table.getLastStateBattlefield(), sa.getParam("AttachedTo"), c.getController(), c, sa);
+                            }
+                            if (!list.isEmpty()) {
+                                list = CardLists.filter(list, CardPredicates.canBeAttached(c, sa));
+                            }
+                            if (!list.isEmpty()) {
+                                Map<String, Object> params = Maps.newHashMap();
+                                params.put("Attach", c);
+                                Card attachedTo = p.getController().chooseSingleEntityForEffect(list, sa, Localizer.getInstance().getMessage("lblSelectACardAttachSourceTo", c.toString()), params);
+                                c.attachToEntity(game.getCardState(attachedTo), sa, true);
+                            } else if (c.isAura()) { 
+                                continue;
+                            }
                         }
                         if (sa.hasParam("Tapped")) {
                             c.setTapped(true);
                         }
-                        m = game.getAction().moveTo(c.getController().getZone(foundDest), c, sa, moveParams);
-                        if (addToCombat(c, c.getController(), sa, "Attacking", "Blocking")) {
+                        game.getAction().moveTo(foundDest, c, sa, moveParams);
+                        if (addToCombat(c, sa, "Attacking", "Blocking")) {
                             combatChanged = true;
                         }
                     } else if (sa.hasParam("NoMoveFound")) {
                         //Don't do anything
                     } else {
-                        m = game.getAction().moveTo(foundDest, c, foundLibPos, sa, moveParams);
+                        game.getAction().moveTo(foundDest, c, foundLibPos, sa, moveParams);
                     }
 
-                    if (m != null && !origin.equals(m.getZone().getZoneType())) {
-                        CardZoneTable trigList = new CardZoneTable();
-                        trigList.put(origin, m.getZone().getZoneType(), m);
-                        trigList.triggerChangesZoneAll(game, sa);
+                    if (sequential) {
+                        tableSeq.triggerChangesZoneAll(game, sa);
                     }
                 }
                 revealed.removeAll(found);
@@ -250,32 +277,39 @@ public class DigUntilEffect extends SpellAbilityEffect {
                 }
 
                 // Allow ordering the rest of the revealed cards
-                if (finalDest.isKnown() && revealed.size() >= 2) {
-                    revealed = (CardCollection)p.getController().orderMoveToZoneList(revealed, finalDest, sa);
-                }
-                if (finalDest == ZoneType.Library && !shuffle
-                        && !sa.hasParam("RevealRandomOrder") && revealed.size() >= 2) {
+                if ((finalDest.isKnown() || (finalDest == ZoneType.Library && !shuffle && !sa.hasParam("RevealRandomOrder"))) && revealed.size() >= 2) {
                     revealed = (CardCollection)p.getController().orderMoveToZoneList(revealed, finalDest, sa);
                 }
 
-                final Iterator<Card> itr = revealed.iterator();
-                while (itr.hasNext()) {
-                    final Card c = itr.next();
-                    final ZoneType origin = c.getZone().getZoneType();
-                    final Card m = game.getAction().moveTo(finalDest, c, finalPos, sa);
-                    if (m != null && !origin.equals(m.getZone().getZoneType())) {
-                        table.put(origin, m.getZone().getZoneType(), m);
-                    }
+                Map<AbilityKey, Object> moveParams = AbilityKey.newMap();
+                AbilityKey.addCardZoneTableParams(moveParams, table);
+
+                for (Card c : revealed) {
+                    game.getAction().moveTo(finalDest, c, finalPos, sa, moveParams);
                 }
             }
 
             if (shuffle) {
                 p.shuffle(sa);
             }
+
+            if (sa.isKeyword(Keyword.CASCADE)) {
+                Map<AbilityKey, Object> runParams = AbilityKey.mapFromAffected(p);
+                runParams.put(AbilityKey.Cards, revealed);
+                game.getReplacementHandler().run(ReplacementType.Cascade, runParams);
+
+                if (sa.hasParam("RememberRevealed")) {
+                    final ZoneType removeZone = foundDest;
+                    host.removeRemembered(revealed.filter(c -> !c.isInZone(removeZone)));
+                }
+            }
         } // end foreach player
         if (combatChanged) {
             game.updateCombatForView();
             game.fireEvent(new GameEventCombatChanged());
+        }
+        if (!sequential) {
+            tableSeq.triggerChangesZoneAll(game, sa);   
         }
         table.triggerChangesZoneAll(game, sa);
     }

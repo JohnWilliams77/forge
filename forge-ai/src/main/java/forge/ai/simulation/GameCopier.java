@@ -1,29 +1,16 @@
 package forge.ai.simulation;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-
-import com.google.common.collect.BiMap;
-import com.google.common.collect.HashBiMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import com.google.common.collect.Table;
-
+import com.google.common.collect.*;
 import forge.LobbyPlayer;
 import forge.ai.AIOption;
 import forge.ai.LobbyPlayerAi;
-import forge.game.Game;
-import forge.game.GameEntity;
-import forge.game.GameObject;
-import forge.game.GameObjectMap;
-import forge.game.GameRules;
-import forge.game.Match;
-import forge.game.StaticEffect;
+import forge.card.CardRarity;
+import forge.card.CardRules;
+import forge.game.*;
+import forge.game.ability.effects.DetachedCardEffect;
 import forge.game.card.Card;
 import forge.game.card.CardCloneStates;
-import forge.game.card.CardFactory;
+import forge.game.card.CardCopyService;
 import forge.game.card.CounterType;
 import forge.game.card.token.TokenInfo;
 import forge.game.combat.Combat;
@@ -38,6 +25,11 @@ import forge.game.staticability.StaticAbility;
 import forge.game.trigger.TriggerType;
 import forge.game.zone.PlayerZoneBattlefield;
 import forge.game.zone.ZoneType;
+import forge.item.PaperCard;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 public class GameCopier {
     private static final ZoneType[] ZONES = new ZoneType[] {
@@ -54,9 +46,13 @@ public class GameCopier {
     private BiMap<Player, Player> playerMap = HashBiMap.create();
     private BiMap<Card, Card> cardMap = HashBiMap.create();
     private CopiedGameObjectMap gameObjectMap;
+    private GameSnapshot snapshot = null;
 
     public GameCopier(Game origGame) {
         this.origGame = origGame;
+        if (origGame.EXPERIMENTAL_RESTORE_SNAPSHOT) {
+            this.snapshot = new GameSnapshot(origGame);
+        }
     }
 
     public Game getOriginalGame() {
@@ -71,6 +67,11 @@ public class GameCopier {
         return makeCopy(null, null);
     }
     public Game makeCopy(PhaseType advanceToPhase, Player aiPlayer) {
+        if (origGame.EXPERIMENTAL_RESTORE_SNAPSHOT) {
+            // How do we advance to phase when using restores?
+            return snapshot.makeCopy();
+        }
+
         List<RegisteredPlayer> origPlayers = origGame.getMatch().getPlayers();
         List<RegisteredPlayer> newPlayers = new ArrayList<>();
         for (RegisteredPlayer p : origPlayers) {
@@ -80,21 +81,23 @@ public class GameCopier {
         GameRules currentRules = origGame.getRules();
         Match newMatch = new Match(currentRules, newPlayers, origGame.getView().getTitle());
         Game newGame = new Game(newPlayers, currentRules, newMatch);
+        newGame.dangerouslySetTimestamp(origGame.getTimestamp());
 
         for (int i = 0; i < origGame.getPlayers().size(); i++) {
             Player origPlayer = origGame.getPlayers().get(i);
-            Player newPlayer = newGame.getPlayers().get(i);
+            Player newPlayer = newGame.getPlayer(origPlayer.getId());
             newPlayer.setLife(origPlayer.getLife(), null);
             newPlayer.setLifeLostLastTurn(origPlayer.getLifeLostLastTurn());
             newPlayer.setLifeLostThisTurn(origPlayer.getLifeLostThisTurn());
             newPlayer.setLifeGainedThisTurn(origPlayer.getLifeGainedThisTurn());
+            newPlayer.setCommitedCrimeThisTurn(origPlayer.getCommittedCrimeThisTurn());
             newPlayer.setLifeStartedThisTurnWith(origPlayer.getLifeStartedThisTurnWith());
             newPlayer.setDamageReceivedThisTurn(origPlayer.getDamageReceivedThisTurn());
-            newPlayer.setActivateLoyaltyAbilityThisTurn(origPlayer.getActivateLoyaltyAbilityThisTurn());
             newPlayer.setLandsPlayedThisTurn(origPlayer.getLandsPlayedThisTurn());
             newPlayer.setCounters(Maps.newHashMap(origPlayer.getCounters()));
-            newPlayer.setBlessing(origPlayer.hasBlessing());
-            newPlayer.setRevolt(origPlayer.hasRevolt());
+            newPlayer.setSpeed(origPlayer.getSpeed());
+            newPlayer.setBlessing(origPlayer.hasBlessing(), null);
+            newPlayer.setDescended(origPlayer.getDescended());
             newPlayer.setLibrarySearched(origPlayer.getLibrarySearched());
             newPlayer.setSpellsCastLastTurn(origPlayer.getSpellsCastLastTurn());
             for (int j = 0; j < origPlayer.getSpellsCastThisTurn(); j++) {
@@ -102,11 +105,11 @@ public class GameCopier {
             }
             newPlayer.setMaxHandSize(origPlayer.getMaxHandSize());
             newPlayer.setUnlimitedHandSize(origPlayer.isUnlimitedHandSize());
+            newPlayer.setCrankCounter(origPlayer.getCrankCounter());
             // TODO creatureAttackedThisTurn
             for (Mana m : origPlayer.getManaPool()) {
                 newPlayer.getManaPool().addMana(m, false);
             }
-            newPlayer.setCommanders(origPlayer.getCommanders()); // will be fixed up below
             playerMap.put(origPlayer, newPlayer);
         }
 
@@ -118,29 +121,12 @@ public class GameCopier {
             ((PlayerZoneBattlefield) p.getZone(ZoneType.Battlefield)).setTriggers(false);
         }
 
-        copyGameState(newGame);
+        copyGameState(newGame, aiPlayer);
 
-        for (Player p : newGame.getPlayers()) {
-            List<Card> commanders = Lists.newArrayList();
-            for (final Card c : p.getCommanders()) {
-                commanders.add(gameObjectMap.map(c));
-            }
-            p.setCommanders(commanders);
-            ((PlayerZoneBattlefield) p.getZone(ZoneType.Battlefield)).setTriggers(true);
-        }
         for (Player origPlayer : playerMap.keySet()) {
             Player newPlayer = playerMap.get(origPlayer);
-            for (final Card c : origPlayer.getCommanders()) {
-                Card newCommander = gameObjectMap.map(c);
-                int castTimes = origPlayer.getCommanderCast(c);
-                for (int i = 0; i < castTimes; i++) {
-                    newPlayer.incCommanderCast(newCommander);
-                }
-            }
-            for (Map.Entry<Card, Integer> entry : origPlayer.getCommanderDamage()) {
-                Card newCommander = gameObjectMap.map(entry.getKey());
-                newPlayer.addCommanderDamage(newCommander, entry.getValue());
-            }
+            origPlayer.copyCommandersToSnapshot(newPlayer, gameObjectMap::map);
+            ((PlayerZoneBattlefield) newPlayer.getZone(ZoneType.Battlefield)).setTriggers(true);
         }
         newGame.getTriggerHandler().clearSuppression(TriggerType.ChangesZone);
 
@@ -165,7 +151,7 @@ public class GameCopier {
             for (SpellAbility sa : c.getSpellAbilities()) {
                 Player activatingPlayer = sa.getActivatingPlayer();
                 if (activatingPlayer != null && activatingPlayer.getGame() != newGame) {
-                    sa.setActivatingPlayer(gameObjectMap.map(activatingPlayer), true);
+                    sa.setActivatingPlayer(gameObjectMap.map(activatingPlayer));
                 }
             }
         }
@@ -188,18 +174,13 @@ public class GameCopier {
         // TODO update thisTurnCast
 
         if (advanceToPhase != null) {
-            newGame.getPhaseHandler().devAdvanceToPhase(advanceToPhase, new Runnable() {
-                @Override
-                public void run() {
-                    GameSimulator.resolveStack(newGame, aiPlayer.getWeakestOpponent());
-                }
-            });
+            newGame.getPhaseHandler().devAdvanceToPhase(advanceToPhase, () -> GameSimulator.resolveStack(newGame, aiPlayer.getWeakestOpponent()));
         }
 
         return newGame;
     }
 
-    private static void copyStack(Game origGame, Game newGame, GameObjectMap map) {
+    private static void copyStack(Game origGame, Game newGame, IEntityMap map) {
         for (SpellAbilityStackInstance origEntry : origGame.getStack()) {
             SpellAbility origSa = origEntry.getSpellAbility();
             Card origHostCard = origSa.getHostCard();
@@ -209,7 +190,7 @@ public class GameCopier {
                 newSa = findSAInCard(origSa, newCard);
             }
             if (newSa != null) {
-                newSa.setActivatingPlayer(map.map(origSa.getActivatingPlayer()), true);
+                newSa.setActivatingPlayer(map.map(origSa.getActivatingPlayer()));
                 if (origSa.usesTargeting()) {
                     for (GameObject o : origSa.getTargets()) {
                         newSa.getTargets().add(map.map(o));
@@ -231,7 +212,10 @@ public class GameCopier {
         return clone;
     }
 
-    private void copyGameState(Game newGame) {
+    private void copyGameState(Game newGame, Player aiPlayer) {
+        newGame.EXPERIMENTAL_RESTORE_SNAPSHOT = origGame.EXPERIMENTAL_RESTORE_SNAPSHOT;
+        newGame.AI_TIMEOUT = origGame.AI_TIMEOUT;
+        newGame.AI_CAN_USE_TIMEOUT = origGame.AI_CAN_USE_TIMEOUT;
         newGame.setAge(origGame.getAge());
 
         // TODO countersAddedThisTurn
@@ -254,7 +238,7 @@ public class GameCopier {
 
         for (ZoneType zone : ZONES) {
             for (Card card : origGame.getCardsIn(zone)) {
-                addCard(newGame, zone, card);
+                addCard(newGame, zone, card, aiPlayer);
             }
             // TODO CardsAddedThisTurn is now messed up
         }
@@ -262,7 +246,8 @@ public class GameCopier {
 
         for (Card card : origGame.getCardsIn(ZoneType.Battlefield)) {
             Card otherCard = cardMap.get(card);
-            otherCard.setTimestamp(card.getTimestamp());
+            otherCard.setGameTimestamp(card.getGameTimestamp());
+            otherCard.setLayerTimestamp(card.getLayerTimestamp());
             otherCard.setSickness(card.hasSickness());
             otherCard.setState(card.getCurrentStateName(), false);
             if (card.isAttachedToEntity()) {
@@ -270,11 +255,17 @@ public class GameCopier {
                 otherCard.setEntityAttachedTo(ge);
                 ge.addAttachedCard(otherCard);
             }
+            if (card.getCrewedByThisTurn() != null) {
+                otherCard.setCrewedByThisTurn(card.getCrewedByThisTurn());
+            }
             if (card.getCloneOrigin() != null) {
                 otherCard.setCloneOrigin(cardMap.get(card.getCloneOrigin()));
             }
             if (card.getHaunting() != null) {
                 otherCard.setHaunting(cardMap.get(card.getHaunting()));
+            }
+            if (card.getSaddledByThisTurn() != null) {
+                otherCard.setSaddledByThisTurn(card.getSaddledByThisTurn());
             }
             if (card.getEffectSource() != null) {
                 otherCard.setEffectSource(cardMap.get(card.getEffectSource()));
@@ -284,21 +275,30 @@ public class GameCopier {
             }
             if (card.getCopiedPermanent() != null) {
                 // TODO would it be safe to simply reuse the prototype?
-                otherCard.setCopiedPermanent(CardFactory.copyCard(card.getCopiedPermanent(), false));
+                otherCard.setCopiedPermanent(new CardCopyService(card.getCopiedPermanent()).copyCard(false));
             }
             // TODO: Verify that the above relationships are preserved bi-directionally or not.
         }
     }
 
+    private static PaperCard hidden_info_card = new PaperCard(CardRules.fromScript(Lists.newArrayList("Name:hidden", "Types:Artifact", "Oracle:")), "", CardRarity.Common);
+    private static final boolean PRUNE_HIDDEN_INFO = false;
     private static final boolean USE_FROM_PAPER_CARD = true;
-    private Card createCardCopy(Game newGame, Player newOwner, Card c) {
+    private Card createCardCopy(Game newGame, Player newOwner, Card c, Player aiPlayer) {
         if (c.isToken() && !c.isImmutable()) {
             Card result = new TokenInfo(c).makeOneToken(newOwner);
-            CardFactory.copyCopiableCharacteristics(c, result, null, null);
+            new CardCopyService(c).copyCopiableCharacteristics(result, null, null);
             return result;
         }
         if (USE_FROM_PAPER_CARD && !c.isImmutable() && c.getPaperCard() != null) {
-            Card newCard = Card.fromPaperCard(c.getPaperCard(), newOwner);
+            Card newCard;
+            if (PRUNE_HIDDEN_INFO && !c.getView().canBeShownTo(aiPlayer.getView())) {
+                // TODO also check REVEALED_CARDS memory
+                newCard = new Card(newGame.nextCardId(), hidden_info_card, newGame);
+                newCard.setOwner(newOwner);
+            } else {
+                newCard = Card.fromPaperCard(c.getPaperCard(), newOwner);
+            }
             newCard.setCommander(c.isCommander());
             return newCard;
         }
@@ -307,7 +307,11 @@ public class GameCopier {
         // The issue is that it requires parsing the original card from scratch from the paper card. We should
         // improve the copier to accurately copy the card from its actual state, so that the paper card shouldn't
         // be needed. Once the below code accurately copies the card, remove the USE_FROM_PAPER_CARD code path.
-        Card newCard = new Card(newGame.nextCardId(), c.getPaperCard(), newGame);
+        Card newCard;
+        if (c instanceof DetachedCardEffect)
+            newCard = new DetachedCardEffect((DetachedCardEffect) c, newGame, true);
+        else
+            newCard = new Card(newGame.nextCardId(), c.getPaperCard(), newGame);
         newCard.setOwner(newOwner);
         newCard.setName(c.getName());
         newCard.setCommander(c.isCommander());
@@ -327,9 +331,9 @@ public class GameCopier {
         return newCard;
     }
 
-    private void addCard(Game newGame, ZoneType zone, Card c) {
+    private void addCard(Game newGame, ZoneType zone, Card c, Player aiPlayer) {
         final Player owner = playerMap.get(c.getOwner());
-        final Card newCard = createCardCopy(newGame, owner, c);
+        final Card newCard = createCardCopy(newGame, owner, c, aiPlayer);
         cardMap.put(c, newCard);
 
         // TODO ExiledWith
@@ -355,13 +359,7 @@ public class GameCopier {
             newCard.setDamage(c.getDamage());
             newCard.setDamageReceivedThisTurn(c.getDamageReceivedThisTurn());
 
-            newCard.setChangedCardColors(c.getChangedCardColorsTable());
-            newCard.setChangedCardColorsCharacterDefining(c.getChangedCardColorsCharacterDefiningTable());
-
-            newCard.setChangedCardTypes(c.getChangedCardTypesTable());
-            newCard.setChangedCardTypesCharacterDefining(c.getChangedCardTypesCharacterDefiningTable());
-            newCard.setChangedCardKeywords(c.getChangedCardKeywords());
-            newCard.setChangedCardNames(c.getChangedCardNames());
+            newCard.copyFrom(c);
 
             for (Table.Cell<Long, Long, List<String>> kw : c.getHiddenExtrinsicKeywordsTable().cellSet()) {
                 newCard.addHiddenExtrinsicKeywords(kw.getRowKey(), kw.getColumnKey(), kw.getValue());
@@ -374,7 +372,10 @@ public class GameCopier {
             if (c.isFaceDown()) {
                 newCard.turnFaceDown(true);
                 if (c.isManifested()) {
-                    newCard.setManifested(true);
+                    newCard.setManifested(c.getManifestedSA());
+                }
+                if (c.isCloaked()) {
+                    newCard.setCloaked(c.getCloakedSA());
                 }
             }
             if (c.isMonstrous()) {
@@ -382,6 +383,15 @@ public class GameCopier {
             }
             if (c.isRenowned()) {
                 newCard.setRenowned(true);
+            }
+            if (c.isSolved()) {
+                newCard.setSolved(true);
+            }
+            if (c.isSaddled()) {
+                newCard.setSaddled(true);
+            }
+            if (c.isSuspected()) {
+                newCard.setSuspected(true);
             }
             if (c.isPlaneswalker()) {
                 for (SpellAbility sa : c.getAllSpellAbilities()) {
@@ -418,12 +428,12 @@ public class GameCopier {
             if (c.hasChosenColor()) {
                 newCard.setChosenColors(Lists.newArrayList(c.getChosenColors()));
             }
-            if (!c.getNamedCard().isEmpty()) {
-                newCard.setNamedCard(c.getNamedCard());
+            if (c.hasNamedCard()) {
+                newCard.setNamedCards(Lists.newArrayList(c.getNamedCards()));
             }
-            if (!c.getNamedCard2().isEmpty()) {
-                newCard.setNamedCard2(c.getNamedCard());
-            }
+
+            newCard.setSprocket(c.getSprocket());
+
             newCard.setSVars(c.getSVars());
             newCard.copyChangedSVarsFrom(c);
         }
@@ -445,8 +455,8 @@ public class GameCopier {
         return null;
     }
 
-    private class CopiedGameObjectMap extends GameObjectMap {
-        private Game copiedGame;
+    private class CopiedGameObjectMap implements IEntityMap {
+        private final Game copiedGame;
 
         public CopiedGameObjectMap(Game copiedGame) {
             this.copiedGame = copiedGame;
@@ -464,18 +474,32 @@ public class GameCopier {
     }
 
     public GameObject find(GameObject o) {
-        GameObject result = cardMap.get(o);
-        if (result != null)
-            return result;
-        // TODO: Have only one GameObject map?
-        result = playerMap.get(o);
-        if (result != null)
-            return result;
+        if (origGame.EXPERIMENTAL_RESTORE_SNAPSHOT) {
+            return snapshot.find(o);
+        }
+
+        GameObject result = null;
+        if (o instanceof Card) {
+            result = cardMap.get(o);
+            if (result != null) {
+                return result;
+            } else {
+                System.out.println("Couldn't map " + o + "/" + System.identityHashCode(o));
+            }
+        } else if (o instanceof Player) {
+            result = playerMap.get(o);
+            if (result != null)
+                return result;
+        }
         if (o != null)
             throw new RuntimeException("Couldn't map " + o + "/" + System.identityHashCode(o));
-        return null;
+        return result;
     }
     public GameObject reverseFind(GameObject o) {
+        if (origGame.EXPERIMENTAL_RESTORE_SNAPSHOT) {
+            return snapshot.reverseFind(o);
+        }
+
         GameObject result = cardMap.inverse().get(o);
         if (result != null)
             return result;

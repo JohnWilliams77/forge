@@ -1,21 +1,14 @@
 package forge.lda;
 
-import com.google.common.base.Function;
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-
 import forge.GuiDesktop;
 import forge.StaticData;
-import forge.card.CardRules;
-import forge.card.CardRulesPredicates;
 import forge.deck.Deck;
 import forge.deck.DeckFormat;
 import forge.deck.io.Archetype;
 import forge.deck.io.CardThemedLDAIO;
 import forge.deck.io.DeckStorage;
 import forge.gui.GuiBase;
+import forge.item.PaperCardPredicates;
 import forge.lda.dataset.Dataset;
 import forge.lda.lda.LDA;
 import forge.game.GameFormat;
@@ -30,6 +23,7 @@ import org.apache.commons.lang3.tuple.Pair;
 
 import java.io.File;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static forge.lda.lda.inference.InferenceMethod.CGS;
 
@@ -43,14 +37,11 @@ public final class LDAModelGenetrator {
     public static Map<String, List<Archetype>> ldaArchetypes = new HashMap<>();
 
 
-    public static final void main(String[] args){
+    public static void main(String[] args){
         GuiBase.setInterface(new GuiDesktop());
-        FModel.initialize(null, new Function<ForgePreferences, Void>()  {
-            @Override
-            public Void apply(ForgePreferences preferences) {
-                preferences.setPref(ForgePreferences.FPref.LOAD_CARD_SCRIPTS_LAZILY, false);
-                return null;
-            }
+        FModel.initialize(null, preferences -> {
+            preferences.setPref(ForgePreferences.FPref.LOAD_CARD_SCRIPTS_LAZILY, false);
+            return null;
         });
         initialize();
     }
@@ -258,31 +249,21 @@ public final class LDAModelGenetrator {
 
             unfilteredTopics.add(new Archetype(topRankVocabs, deckName, decks.size()));
         }
-        Comparator<Archetype> archetypeComparator = new Comparator<Archetype>() {
-            @Override
-            public int compare(Archetype o1, Archetype o2) {
-                return o2.getDeckCount().compareTo(o1.getDeckCount());
-            }
-        };
+        Comparator<Archetype> archetypeComparator = (o1, o2) -> o2.getDeckCount().compareTo(o1.getDeckCount());
 
-        Collections.sort(unfilteredTopics,archetypeComparator);
+        unfilteredTopics.sort(archetypeComparator);
         return unfilteredTopics;
     }
 
 
 
+    @SuppressWarnings("unchecked")
     private static <K, V> Map<K, V> sortByValue(Map<K, V> map) {
         List<Map.Entry<K, V>> list = new LinkedList<>(map.entrySet());
-        Collections.sort(list, new Comparator<Object>() {
-            @SuppressWarnings("unchecked")
-            public int compare(Object o1, Object o2) {
-                return ((Comparable<V>) ((Map.Entry<K, V>) (o2)).getValue()).compareTo(((Map.Entry<K, V>) (o1)).getValue());
-            }
-        });
+        list.sort((Comparator<Object>) (o1, o2) -> ((Comparable<V>) ((Map.Entry<K, V>) (o2)).getValue()).compareTo(((Map.Entry<K, V>) (o1)).getValue()));
 
         Map<K, V> result = new LinkedHashMap<>();
-        for (Iterator<Map.Entry<K, V>> it = list.iterator(); it.hasNext();) {
-            Map.Entry<K, V> entry = (Map.Entry<K, V>) it.next();
+        for (Map.Entry<K, V> entry : list) {
             result.put(entry.getKey(), entry.getValue());
         }
 
@@ -306,9 +287,9 @@ public final class LDAModelGenetrator {
                 true);
 
         //get all cards
-        final Iterable<PaperCard> cards = Iterables.filter(FModel.getMagicDb().getCommonCards().getUniqueCards()
-                , Predicates.compose(Predicates.not(CardRulesPredicates.Presets.IS_BASIC_LAND_NOT_WASTES), PaperCard.FN_GET_RULES));
-        List<PaperCard> cardList = Lists.newArrayList(cards);
+        List<PaperCard> cardList = FModel.getMagicDb().getCommonCards().streamUniqueCards()
+                .filter(PaperCardPredicates.NOT_TRUE_BASIC_LAND)
+                .collect(Collectors.toList());
         cardList.add(FModel.getMagicDb().getCommonCards().getCard("Wastes"));
         Map<String, Integer> cardIntegerMap = new HashMap<>();
         Map<Integer, PaperCard> integerCardMap = new HashMap<>();
@@ -321,13 +302,9 @@ public final class LDAModelGenetrator {
         }
 
         //filter to just legal commanders
-        List<PaperCard> legends = Lists.newArrayList(Iterables.filter(cardList,Predicates.compose(
-                new Predicate<CardRules>() {
-                    @Override
-                    public boolean apply(CardRules rules) {
-                        return DeckFormat.Commander.isLegalCommander(rules);
-                    }
-                }, PaperCard.FN_GET_RULES)));
+        List<PaperCard> legends = cardList.stream()
+                .filter(PaperCardPredicates.fromRules(DeckFormat.Commander::isLegalCommander))
+                .collect(Collectors.toList());
 
         //generate lookups for legends to link commander names to matrix rows
         for (int i=0; i<legends.size(); ++i){
@@ -369,25 +346,25 @@ public final class LDAModelGenetrator {
     //update the matrix by incrementing the connectivity count for each card in the deck
     public static void updateLegendMatrix(Deck deck, PaperCard legend, Map<String, Integer> cardIntegerMap,
                              Map<String, Integer> legendIntegerMap, int[][] matrix){
-        for (PaperCard pairCard:Iterables.filter(deck.getMain().toFlatList(),
-                Predicates.compose(Predicates.not(CardRulesPredicates.Presets.IS_BASIC_LAND_NOT_WASTES), PaperCard.FN_GET_RULES))){
-            if (!pairCard.getName().equals(legend.getName())){
+        String cardName = legend.getName();
+        deck.getMain().toFlatList().stream()
+            .filter(PaperCardPredicates.NOT_TRUE_BASIC_LAND)
+            .filter(PaperCardPredicates.name(cardName).negate())
+            .forEach(pairCard -> {
                 try {
-                    int old = matrix[legendIntegerMap.get(legend.getName())][cardIntegerMap.get(pairCard.getName())];
-                    matrix[legendIntegerMap.get(legend.getName())][cardIntegerMap.get(pairCard.getName())] = old + 1;
+                    int old = matrix[legendIntegerMap.get(cardName)][cardIntegerMap.get(pairCard.getName())];
+                    matrix[legendIntegerMap.get(cardName)][cardIntegerMap.get(pairCard.getName())] = old + 1;
                 }catch (NullPointerException ne){
                     //TODO: Not sure what was failing here
                     ne.printStackTrace();
                 }
-            }
-
-        }
+            });
         //add partner commanders to matrix
         if(deck.getCommanders().size()>1){
             for(PaperCard partner:deck.getCommanders()){
                 if(!partner.equals(legend)){
-                    int old = matrix[legendIntegerMap.get(legend.getName())][cardIntegerMap.get(partner.getName())];
-                    matrix[legendIntegerMap.get(legend.getName())][cardIntegerMap.get(partner.getName())] = old + 1;
+                    int old = matrix[legendIntegerMap.get(cardName)][cardIntegerMap.get(partner.getName())];
+                    matrix[legendIntegerMap.get(cardName)][cardIntegerMap.get(partner.getName())] = old + 1;
                 }
             }
         }

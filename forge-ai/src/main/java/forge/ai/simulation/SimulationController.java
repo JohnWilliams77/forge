@@ -1,16 +1,17 @@
 package forge.ai.simulation;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
 import forge.ai.simulation.GameStateEvaluator.Score;
 import forge.game.GameObject;
 import forge.game.card.Card;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 public class SimulationController {
+    private static boolean DEBUG = false;
     private static int MAX_DEPTH = 3;
 
     private List<Plan.Decision> currentStack;
@@ -264,6 +265,10 @@ public class SimulationController {
     }
 
     public void printState(Score score, SpellAbility origSa, String suffix, boolean useStack) {
+        if (!DEBUG) {
+            return;
+        }
+
         int recursionDepth = getRecursionDepth();
         for (int i = 0; i < recursionDepth; i++)
             System.err.print("  ");

@@ -54,16 +54,19 @@ public class CostFlipCoin extends CostPart {
     }
 
     @Override
+    public int paymentOrder() {
+        // In a world where costs are fully undoable, determining  random information should be done last.
+        return 22;
+    }
+
+    @Override
     public final String toString() {
         return Cost.convertAmountTypeToWords(this.convertAmount(), this.getAmount(), "Coin");
     }
 
     @Override
     public boolean payAsDecided(Player payer, PaymentDecision pd, SpellAbility sa, final boolean effect) {
-        int m = FlipCoinEffect.getFlipMultiplier(payer);
-        for (int i = 0; i < pd.c; i++) {
-            FlipCoinEffect.flipCoinCall(payer, sa, m);
-        }
+        FlipCoinEffect.flipCoins(payer, sa, pd.c);
         return true;
     }
 

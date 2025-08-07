@@ -17,12 +17,15 @@
  */
 package forge.game.cost;
 
+import forge.game.ability.AbilityKey;
 import forge.game.card.Card;
 import forge.game.card.CardCollectionView;
 import forge.game.card.CardLists;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
+
+import java.util.Map;
 
 /**
  * This is for the "ExiledMoveToGrave" Cost.
@@ -76,15 +79,16 @@ public class CostExiledMoveToGrave extends CostPartWithList {
 
     @Override
     public final boolean canPay(final SpellAbility ability, final Player payer, final boolean effect) {
-
         int i = getAbilityAmount(ability);
 
         return getMaxAmountX(ability, payer, effect) >= i;
     }
 
     @Override
-    protected Card doPayment(SpellAbility ability, Card targetCard, final boolean effect) {
-        return targetCard.getGame().getAction().moveToGraveyard(targetCard, null);
+    protected Card doPayment(Player payer, SpellAbility ability, Card targetCard, final boolean effect) {
+        Map<AbilityKey, Object> moveParams = AbilityKey.newMap();
+        AbilityKey.addCardZoneTableParams(moveParams, table);
+        return targetCard.getGame().getAction().moveToGraveyard(targetCard, null, moveParams);
     }
 
     public <T> T accept(ICostVisitor<T> visitor) {

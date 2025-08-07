@@ -1,19 +1,12 @@
 package forge.ai.ability;
 
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import forge.ai.*;
 import forge.game.Game;
 import forge.game.ability.AbilityUtils;
 import forge.game.ability.ApiType;
 import forge.game.card.*;
-import forge.game.card.CardPredicates.Presets;
-import forge.game.cost.Cost;
-import forge.game.cost.CostTapType;
 import forge.game.keyword.Keyword;
 import forge.game.phase.PhaseHandler;
 import forge.game.phase.PhaseType;
@@ -21,24 +14,12 @@ import forge.game.player.Player;
 import forge.game.player.PlayerActionConfirmMode;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.TargetRestrictions;
-import forge.game.staticability.StaticAbility;
 import forge.game.zone.ZoneType;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class PumpAi extends PumpAiBase {
-
-    private static boolean hasTapCost(final Cost cost, final Card source) {
-        if (cost == null) {
-            return true;
-        }
-        return cost.hasSpecificCostType(CostTapType.class);
-    }
 
     @Override
     protected boolean checkAiLogic(final Player ai, final SpellAbility sa, final String aiLogic) {
@@ -66,7 +47,7 @@ public class PumpAi extends PumpAiBase {
         } else if ("Aristocrat".equals(aiLogic)) {
             return SpecialAiLogic.doAristocratLogic(ai, sa);
         } else if (aiLogic.startsWith("AristocratCounters")) {
-            return SpecialAiLogic.doAristocratWithCountersLogic(ai, sa);
+            return SpecialAiLogic.doAristocratWithCountersLogic(ai, sa).willingToPlay();
         } else if (aiLogic.equals("SwitchPT")) {
             // Some more AI would be even better, but this is a good start to prevent spamming
             if (sa.isActivatedAbility() && sa.getActivationsThisTurn() > 0 && !sa.usesTargeting()) {
@@ -106,7 +87,7 @@ public class PumpAi extends PumpAiBase {
     protected boolean checkPhaseRestrictions(final Player ai, final SpellAbility sa, final PhaseHandler ph) {
         final Game game = ai.getGame();
         boolean main1Preferred = "Main1IfAble".equals(sa.getParam("AILogic")) && ph.is(PhaseType.MAIN1, ai);
-        if (game.getStack().isEmpty() && hasTapCost(sa.getPayCosts(), sa.getHostCard())) {
+        if (game.getStack().isEmpty() && sa.getPayCosts().hasTapCost()) {
             if (ph.getPhase().isBefore(PhaseType.COMBAT_DECLARE_ATTACKERS) && ph.isPlayerTurn(ai)) {
                 return false;
             }
@@ -124,7 +105,7 @@ public class PumpAi extends PumpAiBase {
     }
 
     @Override
-    protected boolean checkApiLogic(Player ai, SpellAbility sa) {
+    protected AiAbilityDecision checkApiLogic(Player ai, SpellAbility sa) {
         final Game game = ai.getGame();
         final Card source = sa.getHostCard();
         final SpellAbility root = sa.getRootAbility();
@@ -141,14 +122,15 @@ public class PumpAi extends PumpAiBase {
         if ("Pummeler".equals(aiLogic)) {
             return SpecialCardAi.ElectrostaticPummeler.consider(ai, sa);
         } else if (aiLogic.startsWith("AristocratCounters")) {
-            return true; // the preconditions to this are already tested in checkAiLogic
+            // the preconditions to this are already tested in checkAiLogic
+            return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
         } else if ("GideonBlackblade".equals(aiLogic)) {
             return SpecialCardAi.GideonBlackblade.consider(ai, sa);
         } else if ("MoveCounter".equals(aiLogic)) {
             final SpellAbility moveSA = sa.findSubAbilityByType(ApiType.MoveCounter);
 
             if (moveSA == null) {
-                return false;
+                return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
             }
 
             final String counterType = moveSA.getParam("CounterType");
@@ -163,11 +145,54 @@ public class PumpAi extends PumpAiBase {
                 if (cType != null) {
                     attr = CardLists.filter(attr, CardPredicates.hasCounter(cType));
                     if (attr.isEmpty()) {
-                        return false;
+                        return new AiAbilityDecision(0,AiPlayDecision.TargetingFailed);
                     }
-                    CardCollection best = CardLists.filter(attr, new Predicate<Card>() {
-                        @Override
-                        public boolean apply(Card card) {
+                    CardCollection best = CardLists.filter(attr, card -> {
+                        int amount = 0;
+                        if (StringUtils.isNumeric(amountStr)) {
+                            amount = AbilityUtils.calculateAmount(source, amountStr, moveSA);
+                        } else if (source.hasSVar(amountStr)) {
+                            if ("Count$ChosenNumber".equals(source.getSVar(amountStr))) {
+                                amount = card.getCounters(cType);
+                            }
+                        }
+
+                        int i = card.getCounters(cType);
+                        if (i < amount) {
+                            return false;
+                        }
+
+                        final Card srcCardCpy = CardCopyService.getLKICopy(card);
+                        // cant use substract on Copy
+                        srcCardCpy.setCounters(cType, srcCardCpy.getCounters(cType) - amount);
+
+                        if (cType.is(CounterEnumType.P1P1) && srcCardCpy.getNetToughness() <= 0) {
+                            return srcCardCpy.getCounters(cType) > 0 || !card.hasKeyword(Keyword.UNDYING)
+                                    || card.isToken();
+                        }
+                        return false;
+                    });
+
+                    if (best.isEmpty()) {
+                        best = attr;
+                    }
+
+                    final Card card = ComputerUtilCard.getBestCreatureAI(best);
+                    sa.getTargets().add(card);
+                    return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
+                }
+            } else {
+                final boolean sameCtrl = moveSA.getTargetRestrictions().isSameController();
+
+                List<Card> list = CardLists.getTargetableCards(game.getCardsIn(ZoneType.Battlefield), sa);
+                if (cType != null) {
+                    list = CardLists.filter(list, CardPredicates.hasCounter(cType));
+                    if (list.isEmpty()) {
+                        return new AiAbilityDecision(0, AiPlayDecision.TargetingFailed);
+                    }
+                    List<Card> oppList = CardLists.filterControlledBy(list, ai.getOpponents());
+                    if (!oppList.isEmpty() && !sameCtrl) {
+                        List<Card> best = CardLists.filter(oppList, card -> {
                             int amount = 0;
                             if (StringUtils.isNumeric(amountStr)) {
                                 amount = AbilityUtils.calculateAmount(source, amountStr, moveSA);
@@ -182,7 +207,7 @@ public class PumpAi extends PumpAiBase {
                                 return false;
                             }
 
-                            final Card srcCardCpy = CardUtil.getLKICopy(card);
+                            final Card srcCardCpy = CardCopyService.getLKICopy(card);
                             // cant use substract on Copy
                             srcCardCpy.setCounters(cType, srcCardCpy.getCounters(cType) - amount);
 
@@ -190,57 +215,7 @@ public class PumpAi extends PumpAiBase {
                                 return srcCardCpy.getCounters(cType) > 0 || !card.hasKeyword(Keyword.UNDYING)
                                         || card.isToken();
                             }
-                            return false;
-                        }
-
-                    });
-
-                    if (best.isEmpty()) {
-                        best = attr;
-                    }
-
-                    final Card card = ComputerUtilCard.getBestCreatureAI(best);
-                    sa.getTargets().add(card);
-                    return true;
-                }
-            } else {
-                final boolean sameCtrl = moveSA.getTargetRestrictions().isSameController();
-
-                List<Card> list = CardLists.getTargetableCards(game.getCardsIn(ZoneType.Battlefield), sa);
-                if (cType != null) {
-                    list = CardLists.filter(list, CardPredicates.hasCounter(cType));
-                    if (list.isEmpty()) {
-                        return false;
-                    }
-                    List<Card> oppList = CardLists.filterControlledBy(list, ai.getOpponents());
-                    if (!oppList.isEmpty() && !sameCtrl) {
-                        List<Card> best = CardLists.filter(oppList, new Predicate<Card>() {
-                            @Override
-                            public boolean apply(Card card) {
-                                int amount = 0;
-                                if (StringUtils.isNumeric(amountStr)) {
-                                    amount = AbilityUtils.calculateAmount(source, amountStr, moveSA);
-                                } else if (source.hasSVar(amountStr)) {
-                                    if ("Count$ChosenNumber".equals(source.getSVar(amountStr))) {
-                                        amount = card.getCounters(cType);
-                                    }
-                                }
-
-                                int i = card.getCounters(cType);
-                                if (i < amount) {
-                                    return false;
-                                }
-
-                                final Card srcCardCpy = CardUtil.getLKICopy(card);
-                                // cant use substract on Copy
-                                srcCardCpy.setCounters(cType, srcCardCpy.getCounters(cType) - amount);
-
-                                if (cType.is(CounterEnumType.P1P1) && srcCardCpy.getNetToughness() <= 0) {
-                                    return srcCardCpy.getCounters(cType) > 0 || !card.hasKeyword(Keyword.UNDYING)
-                                            || card.isToken();
-                                }
-                                return true;
-                            }
+                            return true;
                         });
 
                         if (best.isEmpty()) {
@@ -249,7 +224,7 @@ public class PumpAi extends PumpAiBase {
 
                         final Card card = ComputerUtilCard.getBestCreatureAI(best);
                         sa.getTargets().add(card);
-                        return true;
+                        return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                     }
                 }
 
@@ -261,12 +236,8 @@ public class PumpAi extends PumpAiBase {
             int numRedMana = ComputerUtilMana.determineLeftoverMana(new SpellAbility.EmptySa(source), ai, "R", false);
             int currentPower = source.getNetPower();
             if (currentPower < 20 && currentPower + numRedMana >= 20) {
-                return true;
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
             }
-        }
-
-        if (ComputerUtil.preventRunAwayActivations(sa)) {
-            return false;
         }
 
         if (!game.getStack().isEmpty() && !sa.isCurse() && !isFight) {
@@ -278,7 +249,7 @@ public class PumpAi extends PumpAiBase {
             final int activations = sa.getActivationsThisTurn();
             // don't risk sacrificing a creature just to pump it
             if (activations >= sacActivations - 1) {
-                return false;
+                return new AiAbilityDecision(0, AiPlayDecision.ConditionsNotMet);
             }
         }
 
@@ -313,80 +284,67 @@ public class PumpAi extends PumpAiBase {
                 attack = root.getXManaCostPaid();
             }
         } else {
+            // TODO add Double
             attack = AbilityUtils.calculateAmount(sa.getHostCard(), numAttack, sa);
             if (numAttack.contains("X") && sa.getSVar("X").equals("Count$CardsInYourHand") && source.isInZone(ZoneType.Hand)) {
                 attack--; // the card will be spent casting the spell, so actual power is 1 less
             }
         }
 
-        if ("ContinuousBonus".equals(aiLogic)) {
-            // P/T bonus in a continuous static ability
-            for (StaticAbility stAb : source.getStaticAbilities()) {
-                if ("Continuous".equals(stAb.getParam("Mode"))) {
-                    if (stAb.hasParam("AddPower")) {
-                        attack += AbilityUtils.calculateAmount(source, stAb.getParam("AddPower"), stAb);
-                    }
-                    if (stAb.hasParam("AddToughness")) {
-                        defense += AbilityUtils.calculateAmount(source, stAb.getParam("AddToughness"), stAb);
-                    }
-                    if (stAb.hasParam("AddKeyword")) {
-                        keywords.addAll(Lists.newArrayList(stAb.getParam("AddKeyword").split(" & ")));
-                    }
-                }
-            }
-        }
-
         if ((numDefense.contains("X") && defense == 0) || (numAttack.contains("X") && attack == 0 && !isBerserk)) {
-            return false;
+            return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
         }
 
-        //Untargeted
         if (!sa.usesTargeting()) {
             final List<Card> cards = AbilityUtils.getDefinedCards(sa.getHostCard(), sa.getParam("Defined"), sa);
 
             if (cards.isEmpty()) {
-                return false;
+                return new AiAbilityDecision(0, AiPlayDecision.MissingNeededCards);
             }
 
             // when this happens we need to expand AI to consider if its ok for everything?
             for (final Card card : cards) {
                 if (sa.isCurse()) {
                     if (!card.getController().isOpponentOf(ai)) {
-                        return false;
+                        continue;
                     }
 
                     if (!containsUsefulKeyword(ai, keywords, card, sa, attack)) {
                         continue;
                     }
 
-                    return true;
+                    return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                 }
                 if (!card.getController().isOpponentOf(ai)) {
                     if (ComputerUtilCard.shouldPumpCard(ai, sa, card, defense, attack, keywords, false)) {
-                        return true;
+                        return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                     } else if (containsUsefulKeyword(ai, keywords, card, sa, attack)) {
-                        if (game.getPhaseHandler().isPreCombatMain() && isSorcerySpeed(sa, ai) ||
+                        if (game.getPhaseHandler().is(PhaseType.MAIN1) && isSorcerySpeed(sa, ai) ||
                                 game.getPhaseHandler().is(PhaseType.COMBAT_DECLARE_ATTACKERS, ai) ||
                                 game.getPhaseHandler().is(PhaseType.COMBAT_BEGIN, ai)) {
                             Card pumped = ComputerUtilCard.getPumpedCreature(ai, sa, card, 0, 0, keywords);
-                            return ComputerUtilCard.doesSpecifiedCreatureAttackAI(ai, pumped);
+                            if (ComputerUtilCard.doesSpecifiedCreatureAttackAI(ai, pumped)) {
+                                // If the AI can attack with the pumped creature, then it is worth playing
+                                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
+                            }
+                            return new AiAbilityDecision(0, AiPlayDecision.DoesntImpactCombat);
                         }
 
-                        return true;
+                        return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                     } else if (grantsUsefulExtraBlockOpts(ai, sa, card, keywords)) {
-                        return true;
+                        return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                     }
                 }
             }
-            return false;
-        }
-        //Targeted
-        if (!pumpTgtAI(ai, sa, defense, attack, false, false)) {
-            return false;
+            return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
         }
 
-        return true;
-    } // pumpPlayAI()
+        if (!pumpTgtAI(ai, sa, defense, attack, false, false)) {
+            return new AiAbilityDecision(0, AiPlayDecision.TargetingFailed);
+        }
+
+        return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
+    }
 
     private boolean pumpTgtAI(final Player ai, final SpellAbility sa, final int defense, final int attack, final boolean mandatory,
     		boolean immediately) {
@@ -428,7 +386,7 @@ public class PumpAi extends PumpAiBase {
         CardCollection list;
         if (sa.hasParam("AILogic")) {
             if (sa.getParam("AILogic").equals("HighestPower") || sa.getParam("AILogic").equals("ContinuousBonus")) {
-                list = CardLists.getValidCards(CardLists.filter(game.getCardsIn(ZoneType.Battlefield), Presets.CREATURES), tgt.getValidTgts(), ai, source, sa);
+                list = CardLists.getValidCards(CardLists.filter(game.getCardsIn(ZoneType.Battlefield), CardPredicates.CREATURES), tgt.getValidTgts(), ai, source, sa);
                 list = CardLists.getTargetableCards(list, sa);
                 CardLists.sortByPowerDesc(list);
 
@@ -441,6 +399,10 @@ public class PumpAi extends PumpAiBase {
                 for (Card c : list) {
                     if (c.isCreature() && c.getController() == ai
                             && c.getNetToughness() - c.getTempToughnessBoost() + defense <= 0) {
+                        canDieToPump.add(c);
+                    }
+                    // Also, don't pump itself if the SA involves a sacrifice self cost
+                    if (sa.getHostCard().equals(c) && ComputerUtilCost.isSacrificeSelfCost(sa.getPayCosts())) {
                         canDieToPump.add(c);
                     }
                 }
@@ -464,14 +426,14 @@ public class PumpAi extends PumpAiBase {
             } else if (sa.getParam("AILogic").equals("SacOneEach")) {
                 // each player sacrifices one permanent, e.g. Vaevictis, Asmadi the Dire - grab the worst for allied and
                 // the best for opponents
-                return SacrificeAi.doSacOneEachLogic(ai, sa);
+                return SacrificeAi.doSacOneEachLogic(ai, sa).willingToPlay();
             } else if (sa.getParam("AILogic").equals("Destroy")) {
                 List<Card> tgts = CardLists.getTargetableCards(game.getCardsIn(ZoneType.Battlefield), sa);
                 if (tgts.isEmpty()) {
                     return false;
                 }
 
-                List<Card> alliedTgts = CardLists.filter(tgts, Predicates.or(CardPredicates.isControlledByAnyOf(ai.getAllies()), CardPredicates.isController(ai)));
+                List<Card> alliedTgts = CardLists.filter(tgts, CardPredicates.isControlledByAnyOf(ai.getAllies()).or(CardPredicates.isController(ai)));
                 List<Card> oppTgts = CardLists.filter(tgts, CardPredicates.isControlledByAnyOf(ai.getOpponents()));
 
                 Card destroyTgt = null;
@@ -491,7 +453,7 @@ public class PumpAi extends PumpAiBase {
             }
 
             if (isFight) {
-                return FightAi.canFightAi(ai, sa, attack, defense);
+                return FightAi.canFightAi(ai, sa, attack, defense).willingToPlay();
             }
         }
 
@@ -516,33 +478,27 @@ public class PumpAi extends PumpAiBase {
             }
         }
 
-        if (game.getStack().isEmpty()) {
-            // If the cost is tapping, don't activate before declare attack/block
-            if (sa.getPayCosts().hasTapCost()) {
-                if (game.getPhaseHandler().getPhase().isBefore(PhaseType.COMBAT_DECLARE_ATTACKERS)
-                        && game.getPhaseHandler().isPlayerTurn(ai)) {
-                    list.remove(sa.getHostCard());
-                }
-                if (game.getPhaseHandler().getPhase().isBefore(PhaseType.COMBAT_DECLARE_BLOCKERS)
-                        && game.getPhaseHandler().getPlayerTurn().isOpponentOf(ai)) {
-                    list.remove(sa.getHostCard());
-                }
+        if (game.getStack().isEmpty() && sa.getPayCosts().hasTapCost()) {
+            if (game.getPhaseHandler().getPhase().isBefore(PhaseType.COMBAT_DECLARE_ATTACKERS)
+                    && game.getPhaseHandler().isPlayerTurn(ai)) {
+                list.remove(source);
+            }
+            if (game.getPhaseHandler().getPhase().isBefore(PhaseType.COMBAT_DECLARE_BLOCKERS)
+                    && game.getPhaseHandler().getPlayerTurn().isOpponentOf(ai)) {
+                list.remove(source);
             }
         }
 
         // Detain target nonland permanent: don't target noncreature permanents that don't have
         // any activated abilities.
         if ("DetainNonLand".equals(sa.getParam("AILogic"))) {
-            list = CardLists.filter(list, Predicates.or(CardPredicates.Presets.CREATURES, new Predicate<Card>() {
-                @Override
-                public boolean apply(Card card) {
-                    for (SpellAbility sa : card.getSpellAbilities()) {
-                        if (sa.isActivatedAbility()) {
-                            return true;
-                        }
+            list = CardLists.filter(list, CardPredicates.CREATURES.or(card -> {
+                for (SpellAbility sa1 : card.getSpellAbilities()) {
+                    if (sa1.isActivatedAbility()) {
+                        return true;
                     }
-                    return false;
                 }
+                return false;
             }));
         }
 
@@ -561,12 +517,7 @@ public class PumpAi extends PumpAiBase {
         if ("BetterCreatureThanSource".equals(sa.getParam("AILogic"))) {
             // Don't target cards that are not better in value than the targeting card
             final int sourceValue = ComputerUtilCard.evaluateCreature(source);
-            list = CardLists.filter(list, new Predicate<Card>() {
-                @Override
-                public boolean apply(Card card) {
-                    return card.isCreature() && ComputerUtilCard.evaluateCreature(card) > sourceValue + 30;
-                }
-            });
+            list = CardLists.filter(list, card -> card.isCreature() && ComputerUtilCard.evaluateCreature(card) > sourceValue + 30);
         }
 
         if ("ReplaySpell".equals(sa.getParam("AILogic"))) {
@@ -578,6 +529,8 @@ public class PumpAi extends PumpAiBase {
         while (sa.canAddMoreTarget()) {
             Card t = null;
             // boolean goodt = false;
+
+            list = CardLists.canSubsequentlyTarget(list, sa);
 
             if (list.isEmpty()) {
                 if (!sa.isMinTargetChosen() || sa.isZeroTargets()) {
@@ -663,7 +616,7 @@ public class PumpAi extends PumpAiBase {
     }
 
     @Override
-    protected boolean doTriggerAINoCost(Player ai, SpellAbility sa, boolean mandatory) {
+    protected AiAbilityDecision doTriggerNoCost(Player ai, SpellAbility sa, boolean mandatory) {
         final SpellAbility root = sa.getRootAbility();
         final String numDefense = sa.getParamOrDefault("NumDef", "");
         final String numAttack = sa.getParamOrDefault("NumAtt", "");
@@ -702,17 +655,17 @@ public class PumpAi extends PumpAiBase {
 
         if (!sa.usesTargeting()) {
             if (mandatory) {
-                return true;
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
             }
+            return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
         } else {
-            return pumpTgtAI(ai, sa, defense, attack, mandatory, true);
+            boolean result = pumpTgtAI(ai, sa, defense, attack, mandatory, true);
+            return result ? new AiAbilityDecision(100, AiPlayDecision.WillPlay) : new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
         }
-
-        return true;
     }
 
     @Override
-    public boolean chkAIDrawback(SpellAbility sa, Player ai) {
+    public AiAbilityDecision chkDrawback(SpellAbility sa, Player ai) {
         final SpellAbility root = sa.getRootAbility();
         final Card source = sa.getHostCard();
 
@@ -735,10 +688,10 @@ public class PumpAi extends PumpAiBase {
                         continue; // in case the calculation gets messed up somewhere
                     }
                     root.setSVar("EnergyToPay", "Number$" + minus);
-                    return true;
+                    return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                 }
             }
-            return false;
+            return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
         }
 
         int attack;
@@ -770,17 +723,25 @@ public class PumpAi extends PumpAiBase {
         }
 
         if (sa.usesTargeting()) {
-            return pumpTgtAI(ai, sa, defense, attack, false, true);
+            if (pumpTgtAI(ai, sa, defense, attack, false, true)) {
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
+            } else {
+                return new AiAbilityDecision(0, AiPlayDecision.TargetingFailed);
+            }
         }
 
         if (source.isCreature()) {
             if (!source.hasKeyword(Keyword.INDESTRUCTIBLE) && source.getNetToughness() + defense <= source.getDamage()) {
-                return false;
+                return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
             }
-            return source.getNetToughness() + defense > 0;
+            if (source.getNetToughness() + defense > 0) {
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
+            } else {
+                return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
+            }
         }
 
-        return true;
+        return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
     }
 
     @Override
@@ -826,29 +787,17 @@ public class PumpAi extends PumpAiBase {
 
             List<String> toRemove = Lists.newArrayList();
             for (final String name : values.keySet()) {
-                if (!Iterables.any(oppList, CardPredicates.nameEquals(name))) {
+                if (!oppList.anyMatch(CardPredicates.nameEquals(name))) {
                     toRemove.add(name);
                 }
             }
             values.keySet().removeAll(toRemove);
 
-            // JAVA 1.8 use Map.Entry.comparingByValue()
-            data.put(opp, Collections.max(values.entrySet(), new Comparator<Map.Entry<String, Integer>>() {
-                @Override
-                public int compare(Map.Entry<String, Integer> o1, Map.Entry<String, Integer> o2) {
-                    return o1.getValue() - o2.getValue();
-                }
-            }));
+            data.put(opp, Collections.max(values.entrySet(), Map.Entry.comparingByValue()));
         }
 
         if (!data.isEmpty()) {
-            // JAVA 1.8 use Map.Entry.comparingByValue() somehow
-            Map.Entry<Player, Map.Entry<String, Integer>> max = Collections.max(data.entrySet(), new Comparator<Map.Entry<Player, Map.Entry<String, Integer>>>() {
-                @Override
-                public int compare(Map.Entry<Player, Map.Entry<String, Integer>> o1, Map.Entry<Player, Map.Entry<String, Integer>> o2) {
-                    return o1.getValue().getValue() - o2.getValue().getValue();
-                }
-            });
+            Map.Entry<Player, Map.Entry<String, Integer>> max = Collections.max(data.entrySet(), Comparator.comparingInt(o -> o.getValue().getValue()));
 
             // filter list again by the opponent and a creature of the wanted name that can be targeted
             list = CardLists.filter(CardLists.filterControlledBy(list, max.getKey()),

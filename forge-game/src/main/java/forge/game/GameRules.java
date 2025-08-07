@@ -6,17 +6,17 @@ import java.util.Set;
 public class GameRules {
     private final GameType gameType;
     private boolean manaBurn;
+    private boolean orderCombatants;
     private int poisonCountersToLose = 10; // is commonly 10, but turns into 15 for 2HG
     private int gamesPerMatch = 3;
     private int gamesToWinMatch = 2;
     private boolean playForAnte = false;
     private boolean matchAnteRarity = false;
+    private boolean AISideboardingEnabled = false;
     private boolean sideboardForAI = false;
     private final Set<GameType> appliedVariants = EnumSet.noneOf(GameType.class);
 
     // it's a preference, not rule... but I could hardly find a better place for it
-    private boolean canCloneUseTargetsImage;
-    // same for me
     private boolean useGrayText;
 
     // whether to warn about cards AI can't play well
@@ -33,15 +33,20 @@ public class GameRules {
     public boolean hasManaBurn() {
         return manaBurn;
     }
-
     public void setManaBurn(final boolean manaBurn) {
         this.manaBurn = manaBurn;
+    }
+
+    public boolean hasOrderCombatants() {
+        return orderCombatants;
+    }
+    public void setOrderCombatants(final boolean ordered) {
+        this.orderCombatants = ordered;
     }
 
     public int getPoisonCountersToLose() {
         return poisonCountersToLose;
     }
-
     public void setPoisonCountersToLose(final int amount) {
         this.poisonCountersToLose = amount;
     }
@@ -49,7 +54,6 @@ public class GameRules {
     public int getGamesPerMatch() {
         return gamesPerMatch;
     }
-
     public void setGamesPerMatch(final int gamesPerMatch) {
         this.gamesPerMatch = gamesPerMatch;
         this.gamesToWinMatch = gamesPerMatch / 2 + 1;
@@ -58,7 +62,6 @@ public class GameRules {
     public boolean useAnte() {
         return playForAnte;
     }
-
     public void setPlayForAnte(final boolean useAnte) {
         this.playForAnte = useAnte;
     }
@@ -66,7 +69,6 @@ public class GameRules {
     public boolean getMatchAnteRarity() {
         return matchAnteRarity;
     }
-
     public void setMatchAnteRarity(final boolean matchRarity) {
         matchAnteRarity = matchRarity;
     }
@@ -74,9 +76,15 @@ public class GameRules {
     public boolean getSideboardForAI() {
         return sideboardForAI;
     }
-
     public void setSideboardForAI(final boolean sideboard) {
         sideboardForAI = sideboard;
+    }
+
+    public boolean getAISideboardingEnabled() {
+        return AISideboardingEnabled;
+    }
+    public void setAISideboardingEnabled(final boolean aiSideboarding) {
+        AISideboardingEnabled = aiSideboarding;
     }
 
     public int getGamesToWinMatch() {
@@ -88,6 +96,10 @@ public class GameRules {
             this.appliedVariants.addAll(appliedVariants);
     }
 
+    public void addAppliedVariant(final GameType variant) {
+        this.appliedVariants.add(variant);
+    }
+
     public boolean hasAppliedVariant(final GameType variant) {
         return appliedVariants.contains(variant);
     }
@@ -97,13 +109,6 @@ public class GameRules {
                 || appliedVariants.contains(GameType.Oathbreaker)
                 || appliedVariants.contains(GameType.TinyLeaders)
                 || appliedVariants.contains(GameType.Brawl);
-    }
-
-    public boolean canCloneUseTargetsImage() {
-        return canCloneUseTargetsImage;
-    }
-    public void setCanCloneUseTargetsImage(final boolean canCloneUseTargetsImage) {
-        this.canCloneUseTargetsImage = canCloneUseTargetsImage;
     }
 
     public boolean useGrayText() {

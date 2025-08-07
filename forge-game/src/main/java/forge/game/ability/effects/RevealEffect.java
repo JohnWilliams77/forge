@@ -15,6 +15,7 @@ import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
 import forge.util.Aggregates;
+import forge.util.Lang;
 
 public class RevealEffect extends SpellAbilityEffect {
 
@@ -76,14 +77,14 @@ public class RevealEffect extends SpellAbilityEffect {
             }
 
             if (sa.hasParam("RevealToAll") || sa.hasParam("Random")) {
-                game.getAction().reveal(revealed, p, false, sa.getParamOrDefault("RevealTitle", ""));
+                boolean revealTitle = sa.hasParam("RevealTitle");
+                game.getAction().reveal(revealed, p, false, 
+                    revealTitle ? sa.getParam("RevealTitle") : "", !revealTitle);
             } else {
                 game.getAction().reveal(revealed, p);
             }
-            for (final Card c : revealed) {
-                if (sa.hasParam("RememberRevealed")) {
-                    host.addRemembered(c);
-                }
+            if (sa.hasParam("RememberRevealed")) {
+                host.addRemembered(revealed);
             }
         }
     }
@@ -95,7 +96,7 @@ public class RevealEffect extends SpellAbilityEffect {
         final List<Player> tgtPlayers = getTargetPlayers(sa);
 
         if (tgtPlayers.size() > 0) {
-            sb.append(tgtPlayers.get(0)).append(" reveals ");
+            sb.append(Lang.joinHomogenous(tgtPlayers)).append(" reveals ");
             if (sa.hasParam("AnyNumber")) {
                 sb.append("any number of cards ");
             } else if (sa.hasParam("NumCards")) {

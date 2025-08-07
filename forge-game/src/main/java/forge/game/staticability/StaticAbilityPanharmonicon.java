@@ -3,25 +3,34 @@ package forge.game.staticability;
 import com.google.common.collect.ImmutableList;
 
 import forge.game.Game;
+import forge.game.GameEntity;
 import forge.game.ability.AbilityKey;
 import forge.game.card.Card;
+import forge.game.card.CardCollection;
 import forge.game.card.CardCollectionView;
+import forge.game.card.CardDamageMap;
+import forge.game.GameObjectPredicates;
 import forge.game.card.CardZoneTable;
-
 import forge.game.spellability.SpellAbility;
 import forge.game.trigger.Trigger;
 import forge.game.trigger.TriggerType;
 import forge.game.zone.ZoneType;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.commons.lang3.ArrayUtils;
 
 public class StaticAbilityPanharmonicon {
-    static String MODE = "Panharmonicon";
 
     public static int handlePanharmonicon(final Game game, final Trigger t, final Map<AbilityKey, Object> runParams) {
         int n = 0;
+
+        if (t.isStatic() && t.getMode() != TriggerType.TapsForMana && t.getMode() != TriggerType.ManaAdded) {
+            // exclude "helper" trigger
+            return n;
+        }
 
         // These effects say "abilities of objects trigger an additional time" which excludes Delayed Trigger
         // 603.2e
@@ -29,15 +38,10 @@ public class StaticAbilityPanharmonicon {
             return n;
         }
 
-        // "triggers only once" means it can't happen
-        if (t.hasParam("ActivationLimit")) {
-            // currently no other limits, so no further calculation needed
-            return n;
-        }
-
         CardCollectionView cardList = null;
         // if LTB look back
-        if ((t.getMode() == TriggerType.ChangesZone || t.getMode() == TriggerType.ChangesZoneAll) && "Battlefield".equals(t.getParam("Origin"))) {
+        if (t.getMode() == TriggerType.Exploited || t.getMode() == TriggerType.Sacrificed || t.getMode() == TriggerType.Destroyed ||
+                (t.getMode() == TriggerType.ChangesZone || t.getMode() == TriggerType.ChangesZoneAll) && "Battlefield".equals(t.getParam("Origin"))) {
             if (runParams.containsKey(AbilityKey.LastStateBattlefield)) {
                 cardList = (CardCollectionView) runParams.get(AbilityKey.LastStateBattlefield);
             }
@@ -51,8 +55,17 @@ public class StaticAbilityPanharmonicon {
         // Checks only the battlefield, as those effects only work from there
         for (final Card ca : cardList) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
-                if (!stAb.checkConditions(MODE)) {
+                if (!stAb.checkConditions(StaticAbilityMode.Panharmonicon)) {
                     continue;
+                }
+                // it can't trigger more times than the limit allows
+                if (t.hasParam("GameActivationLimit") &&
+                        t.getActivationsThisGame() + n + 1 >= Integer.parseInt(t.getParam("GameActivationLimit"))) {
+                    break;
+                }
+                if (t.hasParam("ActivationLimit") &&
+                        t.getActivationsThisTurn() + n + 1 >= Integer.parseInt(t.getParam("ActivationLimit"))) {
+                    break;
                 }
                 if (applyPanharmoniconAbility(stAb, t, runParams)) {
                     n++;
@@ -64,7 +77,7 @@ public class StaticAbilityPanharmonicon {
     }
 
     public static boolean applyPanharmoniconAbility(final StaticAbility stAb, final Trigger trigger, final Map<AbilityKey, Object> runParams) {
-        final Card card = stAb.getHostCard();
+        final Card host = stAb.getHostCard();
 
         final TriggerType trigMode = trigger.getMode();
 
@@ -80,11 +93,9 @@ public class StaticAbilityPanharmonicon {
             }
         }
 
-        // outside of Room Entered abilities, Panharmonicon effects always talk about Permanents you control which means only Battlefield
-        if (!trigMode.equals(TriggerType.RoomEntered)) {
-            if (!trigger.getHostCard().isInZone(ZoneType.Battlefield)) {
-                return false;
-            }
+        final List<ZoneType> validZones = ZoneType.listValueOf(stAb.getParamOrDefault("ValidZone", "Battlefield"));
+        if (!validZones.contains(trigger.getHostCard().getZone().getZoneType())) {
+            return false;
         }
 
         if (trigMode.equals(TriggerType.ChangesZone)) {
@@ -112,7 +123,20 @@ public class StaticAbilityPanharmonicon {
                 table = (CardZoneTable) runParams.get(AbilityKey.Cards);
             }
 
-            if (table.filterCards(origin == null ? null : ImmutableList.of(ZoneType.smartValueOf(origin)), ZoneType.smartValueOf(destination), stAb.getParam("ValidCause"), card, stAb).isEmpty()) {
+            List<ZoneType> trigOrigin = null;
+            List<ZoneType> trigDestination = null;
+            if (trigger.hasParam("Destination") && !trigger.getParam("Destination").equals("Any")) {
+                trigDestination = ZoneType.listValueOf(trigger.getParam("Destination"));
+            }
+            if (trigger.hasParam("Origin") && !trigger.getParam("Origin").equals("Any")) {
+                trigOrigin = ZoneType.listValueOf(trigger.getParam("Origin"));
+            }
+            CardCollection causesForTrigger = table.filterCards(trigOrigin, trigDestination, trigger.getParam("ValidCards"), trigger.getHostCard(), trigger);
+
+            CardCollection causesForStatic = table.filterCards(origin == null ? null : ImmutableList.of(ZoneType.smartValueOf(origin)), destination == null ? null : ZoneType.listValueOf(destination), stAb.getParam("ValidCause"), host, stAb);
+
+            // check that whatever caused the trigger to fire is also a cause the static applies for
+            if (Collections.disjoint(causesForTrigger, causesForStatic)) {
                 return false;
             }
         } else if (trigMode.equals(TriggerType.Attacks)) {
@@ -132,6 +156,69 @@ public class StaticAbilityPanharmonicon {
                 return false;
             }
             if (!stAb.matchesValidParam("ValidActivator", sa.getActivatingPlayer())) {
+                return false;
+            }
+        } else if (trigMode.equals(TriggerType.BecomesTarget)) {
+            if (!stAb.matchesValidParam("ValidTarget", runParams.get(AbilityKey.Target))) {
+                return false;
+            }
+        } else if (trigMode.equals(TriggerType.BecomesTargetOnce)) {
+            if (!stAb.matchesValidParam("ValidTarget", runParams.get(AbilityKey.Targets))) {
+                return false;
+            }
+        } else if (trigMode.equals(TriggerType.DamageDone) || trigMode.equals(TriggerType.DamageDoneOnce)
+                || trigMode.equals(TriggerType.DamageAll) || trigMode.equals(TriggerType.DamageDealtOnce)) {
+            if (stAb.hasParam("CombatDamage") && stAb.getParam("CombatDamage").equalsIgnoreCase("True") != 
+                    (Boolean) runParams.get(AbilityKey.IsCombatDamage)) {
+                return false;
+            }
+            if (trigMode.equals(TriggerType.DamageDone)) {
+                if (!stAb.matchesValidParam("ValidSource", runParams.get(AbilityKey.DamageSource))) {
+                    return false;
+                }
+                if (!stAb.matchesValidParam("ValidTarget", runParams.get(AbilityKey.DamageTarget))) {
+                    return false;
+                }
+            }
+            if (trigMode.equals(TriggerType.DamageDoneOnce)) {
+                if (!stAb.matchesValidParam("ValidTarget", runParams.get(AbilityKey.DamageTarget))) {
+                    return false;
+                }
+                @SuppressWarnings("unchecked")
+                Map<Card, Integer> dmgMap = (Map<Card, Integer>) runParams.get(AbilityKey.DamageMap);
+                // 1. check it's valid cause for static
+                // 2. and it must also be valid for trigger event
+                if (dmgMap.keySet().stream().noneMatch(
+                        GameObjectPredicates.matchesValidParam(stAb, "ValidSource")
+                                .and(GameObjectPredicates.matchesValidParam(trigger, "ValidSource"))
+                )) {
+                    return false;
+                }
+                // DamageAmount$ can be ignored for now (its usage doesn't interact with ValidSource from either)
+            }
+            if (trigMode.equals(TriggerType.DamageDealtOnce)) {
+                if (!stAb.matchesValidParam("ValidSource", runParams.get(AbilityKey.DamageSource))) {
+                    return false;
+                }
+                @SuppressWarnings("unchecked")
+                Map<GameEntity, Integer> dmgMap = (Map<GameEntity, Integer>) runParams.get(AbilityKey.DamageMap);
+                if (dmgMap.keySet().stream().noneMatch(
+                        GameObjectPredicates.matchesValidParam(stAb, "ValidTarget")
+                                .and(GameObjectPredicates.matchesValidParam(trigger, "ValidTarget"))
+                )) {
+                    return false;
+                }
+            }
+            if (trigMode.equals(TriggerType.DamageAll)) {
+                CardDamageMap table = (CardDamageMap) runParams.get(AbilityKey.DamageMap);
+                table = table.filteredMap(trigger.getParam("ValidSource"), trigger.getParam("ValidTarget"), trigger.getHostCard(), trigger);
+                table = table.filteredMap(stAb.getParam("ValidSource"), stAb.getParam("ValidTarget"), host, stAb);
+                if (table.isEmpty()) {
+                    return false;
+                }
+            }
+        } else if (trigMode.equals(TriggerType.TurnFaceUp)) {
+            if (!stAb.matchesValidParam("ValidTurned", runParams.get(AbilityKey.Card))) {
                 return false;
             }
         }

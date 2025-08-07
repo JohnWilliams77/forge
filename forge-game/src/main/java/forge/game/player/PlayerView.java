@@ -1,21 +1,10 @@
 package forge.game.player;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-
-import org.apache.commons.lang3.StringUtils;
-
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableMultiset;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import forge.LobbyPlayer;
 import forge.card.CardType;
 import forge.card.MagicColor;
@@ -35,6 +24,10 @@ import forge.util.Lang;
 import forge.util.Localizer;
 import forge.util.collect.FCollection;
 import forge.util.collect.FCollectionView;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.*;
+import java.util.Map.Entry;
 
 public class PlayerView extends GameEntityView {
     private static final long serialVersionUID = 7005892740909549086L;
@@ -301,6 +294,13 @@ public class PlayerView extends GameEntityView {
         set(TrackableProperty.NumManaShards, p.getNumManaShards());
     }
 
+    public Map<String, String> getDraftNotes() {
+        return get(TrackableProperty.DraftNotes);
+    }
+    public void setDraftNotes(Map<String, String> draftNotes) {
+        set(TrackableProperty.DraftNotes, draftNotes);
+    }
+
     public int getNumDrawnThisTurn() {
         return get(TrackableProperty.NumDrawnThisTurn);
     }
@@ -327,6 +327,13 @@ public class PlayerView extends GameEntityView {
     }
     public void updateControlVote(boolean val) {
         set(TrackableProperty.ControlVotes, val);
+    }
+
+    public int getAdditionalVillainousChoices() {
+        return get(TrackableProperty.AdditionalVillainousChoices);
+    }
+    public void updateAdditionalVillainousChoices(Player p) {
+        set(TrackableProperty.AdditionalVillainousChoices, p.getAdditionalVotesAmount());
     }
 
     public ImmutableMultiset<String> getKeywords() {
@@ -358,7 +365,7 @@ public class PlayerView extends GameEntityView {
         Map<Integer, Integer> map = get(TrackableProperty.CommanderDamage);
         if (map == null) { return 0; }
         Integer damage = map.get(commander.getId());
-        return damage == null ? 0 : damage.intValue();
+        return damage == null ? 0 : damage;
     }
     void updateCommanderDamage(Player p) {
         Map<Integer, Integer> map = Maps.newHashMap();
@@ -381,7 +388,7 @@ public class PlayerView extends GameEntityView {
         Map<Integer, Integer> map = get(TrackableProperty.CommanderCast);
         if (map == null) { return 0; }
         Integer damage = map.get(commander.getId());
-        return damage == null ? 0 : damage.intValue();
+        return damage == null ? 0 : damage;
     }
 
     void updateCommanderCast(Player p, Card c) {
@@ -412,43 +419,25 @@ public class PlayerView extends GameEntityView {
     public FCollectionView<CardView> getAnte() {
         return get(TrackableProperty.Ante);
     }
-    public int getAnteSize() {
-        return getZoneSize(TrackableProperty.Ante);
-    }
 
     public FCollectionView<CardView> getBattlefield() {
         return get(TrackableProperty.Battlefield);
-    }
-    public int getBattlefieldSize() {
-        return getZoneSize(TrackableProperty.Battlefield);
     }
 
     public FCollectionView<CardView> getCommand() {
         return get(TrackableProperty.Command);
     }
-    public int getCommandSize() {
-        return getZoneSize(TrackableProperty.Command);
-    }
 
     public FCollectionView<CardView> getExile() {
         return get(TrackableProperty.Exile);
-    }
-    public int getExileSize() {
-        return getZoneSize(TrackableProperty.Exile);
     }
 
     public FCollectionView<CardView> getFlashback() {
         return get(TrackableProperty.Flashback);
     }
-    public int getFlashbackSize() {
-        return getZoneSize(TrackableProperty.Flashback);
-    }
 
     public FCollectionView<CardView> getGraveyard() {
         return get(TrackableProperty.Graveyard);
-    }
-    public int getGraveyardSize() {
-        return getZoneSize(TrackableProperty.Graveyard);
     }
 
     public FCollectionView<CardView> getHand() {
@@ -461,15 +450,9 @@ public class PlayerView extends GameEntityView {
     public FCollectionView<CardView> getLibrary() {
         return get(TrackableProperty.Library);
     }
-    public int getLibrarySize() {
-        return getZoneSize(TrackableProperty.Library);
-    }
 
     public FCollectionView<CardView> getSideboard() {
         return get(TrackableProperty.Sideboard);
-    }
-    public int getSideboardSize() {
-        return getZoneSize(TrackableProperty.Sideboard);
     }
 
     public FCollectionView<CardView> getCards(final ZoneType zone) {
@@ -482,6 +465,11 @@ public class PlayerView extends GameEntityView {
     private int getZoneSize(TrackableProperty zoneProp) {
         TrackableCollection<CardView> cards = get(zoneProp);
         return cards == null ? 0 : cards.size();
+    }
+
+    public int getZoneSize(final ZoneType zone) {
+        TrackableProperty prop = getZoneProp(zone);
+        return prop == null ? 0 : getZoneSize(prop);
     }
 
     public int getZoneTypes(TrackableProperty zoneProp) {
@@ -505,26 +493,21 @@ public class PlayerView extends GameEntityView {
 
     private static TrackableProperty getZoneProp(final ZoneType zone) {
         switch (zone) {
-        case Ante:
-            return TrackableProperty.Ante;
-        case Battlefield:
-            return TrackableProperty.Battlefield;
-        case Command:
-            return TrackableProperty.Command;
-        case Exile:
-            return TrackableProperty.Exile;
-        case Graveyard:
-            return TrackableProperty.Graveyard;
-        case Hand:
-            return TrackableProperty.Hand;
-        case Library:
-            return TrackableProperty.Library;
-        case Flashback:
-            return TrackableProperty.Flashback;
-        case Sideboard:
-            return TrackableProperty.Sideboard;
-        default:
-            return null; //other zones not represented
+            case Ante: return TrackableProperty.Ante;
+            case Battlefield: return TrackableProperty.Battlefield;
+            case Command: return TrackableProperty.Command;
+            case Exile: return TrackableProperty.Exile;
+            case Graveyard: return TrackableProperty.Graveyard;
+            case Hand: return TrackableProperty.Hand;
+            case Library: return TrackableProperty.Library;
+            case Flashback: return TrackableProperty.Flashback;
+            case Sideboard: return TrackableProperty.Sideboard;
+            case PlanarDeck: return TrackableProperty.PlanarDeck;
+            case SchemeDeck: return TrackableProperty.SchemeDeck;
+            case AttractionDeck: return TrackableProperty.AttractionDeck;
+            case ContraptionDeck: return TrackableProperty.ContraptionDeck;
+            case Junkyard: return TrackableProperty.Junkyard;
+            default: return null; //other zones not represented
         }
     }
     void updateZone(PlayerZone zone) {
@@ -553,6 +536,9 @@ public class PlayerView extends GameEntityView {
         set(TrackableProperty.Flashback, CardView.getCollection(p.getCardsIn(ZoneType.Flashback)));
     }
 
+    public int getMana(final int manaAtom) {
+        return getMana((byte) manaAtom);
+    }
     public int getMana(final byte color) {
         Integer count = null;
         try {
@@ -562,7 +548,7 @@ public class PlayerView extends GameEntityView {
             e.printStackTrace();
             count = null;
         }
-        return count != null ? count.intValue() : 0;
+        return count != null ? count : 0;
     }
     private Map<Byte, Integer> getMana() {
         return get(TrackableProperty.Mana);
@@ -610,6 +596,7 @@ public class PlayerView extends GameEntityView {
             details.add(Localizer.getInstance().getMessage("lblIsExtraTurn"));
         }
         details.add(Localizer.getInstance().getMessage("lblExtraTurnCountHas", String.valueOf(getExtraTurnCount())));
+
         final String keywords = Lang.joinHomogenous(getDisplayableKeywords());
         if (!keywords.isEmpty()) {
             details.add(keywords);

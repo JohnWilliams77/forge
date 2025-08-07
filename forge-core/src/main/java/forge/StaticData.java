@@ -1,6 +1,5 @@
 package forge;
 
-import com.google.common.base.Predicate;
 import forge.card.CardDb;
 import forge.card.CardEdition;
 import forge.card.CardRules;
@@ -16,6 +15,10 @@ import org.apache.commons.lang3.tuple.Pair;
 
 import java.io.File;
 import java.util.*;
+import java.util.function.Predicate;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
 
 
 /**
@@ -49,10 +52,12 @@ public class StaticData {
     private boolean enableSmartCardArtSelection;
     private boolean loadNonLegalCards;
 
+    private boolean sourceImageForClone;
+
     // Loaded lazily:
-    private IStorage<SealedProduct.Template> boosters;
-    private IStorage<SealedProduct.Template> specialBoosters;
-    private IStorage<SealedProduct.Template> tournaments;
+    private IStorage<SealedTemplate> boosters;
+    private IStorage<SealedTemplate> specialBoosters;
+    private IStorage<SealedTemplate> tournaments;
     private IStorage<FatPack.Template> fatPacks;
     private IStorage<BoosterBox.Template> boosterBoxes;
     private IStorage<PrintSheet> printSheets;
@@ -90,8 +95,12 @@ public class StaticData {
             if (!loadNonLegalCards) {
                 for (CardEdition e : editions) {
                     if (e.getType() == CardEdition.Type.FUNNY || e.getBorderColor() == CardEdition.BorderColor.SILVER) {
-                        for (CardEdition.CardInSet cis : e.getAllCardsInSet()) {
-                            funnyCards.add(cis.name);
+                        List<CardEdition.EditionEntry> eternalCards = e.getFunnyEternalCards();
+
+                        for (CardEdition.EditionEntry cis : e.getAllCardsInSet()) {
+                            if (eternalCards.contains(cis))
+                                continue;
+                            funnyCards.add(cis.name());
                         }
                     }
                 }
@@ -137,7 +146,7 @@ public class StaticData {
             variantCards.initialize(false, false, enableUnknownCards);
         }
 
-        if (this.tokenReader != null){
+        if (this.tokenReader != null) {
             final Map<String, CardRules> tokens = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 
             for (CardRules card : this.tokenReader.loadCards()) {
@@ -208,6 +217,9 @@ public class StaticData {
     }
 
     public CardEdition getCardEdition(String setCode) {
+        if (CardEdition.UNKNOWN_CODE.equals(setCode)) {
+            return CardEdition.UNKNOWN;
+        }
         CardEdition edition = this.editions.get(setCode);
         return edition;
     }
@@ -237,6 +249,15 @@ public class StaticData {
                 commonCards.loadCard(cardName, setCode, rules);
             }
         }
+    }
+
+    /**
+     * Retrieve a PaperCard by looking at all available card databases for any matching print.
+     * @param cardName The name of the card
+     * @return PaperCard instance found in one of the available CardDb databases, or <code>null</code> if not found.
+     */
+    public PaperCard fetchCard(final String cardName) {
+        return fetchCard(cardName, null, null);
     }
 
     /**
@@ -356,23 +377,23 @@ public class StaticData {
         return this.commonCards.contains(cr.cardName) || this.variantCards.contains(cr.cardName);
     }
 
-    /** @return {@link forge.util.storage.IStorage}<{@link forge.item.SealedProduct.Template}> */
-    public final IStorage<SealedProduct.Template> getTournamentPacks() {
+    /** @return {@link forge.util.storage.IStorage}<{@link forge.item.SealedTemplate}> */
+    public final IStorage<SealedTemplate> getTournamentPacks() {
         if (tournaments == null)
-            tournaments = new StorageBase<>("Starter sets", new SealedProduct.Template.Reader(new File(blockDataFolder, "starters.txt")));
+            tournaments = new StorageBase<>("Starter sets", new SealedTemplate.Reader(new File(blockDataFolder, "starters.txt")));
         return tournaments;
     }
 
-    /** @return {@link forge.util.storage.IStorage}<{@link forge.item.SealedProduct.Template}> */
-    public final IStorage<SealedProduct.Template> getBoosters() {
+    /** @return {@link forge.util.storage.IStorage}<{@link forge.item.SealedTemplate}> */
+    public final IStorage<SealedTemplate> getBoosters() {
         if (boosters == null)
             boosters = new StorageBase<>("Boosters", editions.getBoosterGenerator());
         return boosters;
     }
 
-    public final IStorage<SealedProduct.Template> getSpecialBoosters() {
+    public final IStorage<SealedTemplate> getSpecialBoosters() {
         if (specialBoosters == null)
-            specialBoosters = new StorageBase<>("Special boosters", new SealedProduct.Template.Reader(new File(blockDataFolder, "boosters-special.txt")));
+            specialBoosters = new StorageBase<>("Special boosters", new SealedTemplate.Reader(new File(blockDataFolder, "boosters-special.txt")));
         return specialBoosters;
     }
 
@@ -421,7 +442,7 @@ public class StaticData {
     public void setBrawlPredicate(Predicate<PaperCard> brawlPredicate) { this.brawlPredicate = brawlPredicate; }
 
     public Predicate<PaperCard> getStandardPredicate() { return standardPredicate; }
-    
+
     public Predicate<PaperCard> getPioneerPredicate() { return pioneerPredicate; }
 
     public Predicate<PaperCard> getModernPredicate() { return modernPredicate; }
@@ -757,90 +778,87 @@ public class StaticData {
         return preferences_avails;
     }
     public Pair<Integer, Integer> audit(StringBuffer noImageFound, StringBuffer cardNotImplemented) {
-        int missingCount = 0;
-        int notImplementedCount = 0;
+        Queue<String> EDITION_Q = new ConcurrentLinkedQueue<>();
+        Queue<String> NIF_Q = new ConcurrentLinkedQueue<>();
+        Queue<String> CNI_Q = new ConcurrentLinkedQueue<>();
+        Queue<String> TOKEN_Q = new ConcurrentLinkedQueue<>();
+        boolean nifHeader = false;
+        boolean cniHeader = false;
         for (CardEdition e : editions) {
             if (CardEdition.Type.FUNNY.equals(e.getType()))
                 continue;
-            boolean nifHeader = false;
-            boolean cniHeader = false;
-            boolean tokenHeader = false;
 
-            String imagePath;
-            int artIndex = 1;
-
-            HashMap<String, Pair<Boolean, Integer>> cardCount = new HashMap<>();
-            for (CardEdition.CardInSet c : e.getAllCardsInSet()) {
-                if (cardCount.containsKey(c.name)) {
-                    cardCount.put(c.name, Pair.of(c.collectorNumber.startsWith("F"), cardCount.get(c.name).getRight() + 1));
+            Map<String, Pair<Boolean, Integer>> cardCount = new HashMap<>();
+            List<CompletableFuture<?>> futures = new ArrayList<>();
+            for (CardEdition.EditionEntry c : e.getObtainableCards()) {
+                if (cardCount.containsKey(c.name())) {
+                    cardCount.put(c.name(), Pair.of(c.collectorNumber() != null && c.collectorNumber().startsWith("F"), cardCount.get(c.name()).getRight() + 1));
                 } else {
-                    cardCount.put(c.name, Pair.of(c.collectorNumber.startsWith("F"), 1));
+                    cardCount.put(c.name(), Pair.of(c.collectorNumber() != null && c.collectorNumber().startsWith("F"), 1));
                 }
             }
 
             // loop through the cards in this edition, considering art variations...
             for (Map.Entry<String, Pair<Boolean, Integer>> entry : cardCount.entrySet()) {
-                String c = entry.getKey();
-                artIndex = entry.getValue().getRight();
-
-                PaperCard cp = getCommonCards().getCard(c, e.getCode(), artIndex);
-                if (cp == null) {
-                    cp = getVariantCards().getCard(c, e.getCode(), artIndex);
-                }
-
-                if (cp == null) {
-                    if (entry.getValue().getLeft()) //skip funny cards
-                        continue;
-                    if (!loadNonLegalCards && CardEdition.Type.FUNNY.equals(e.getType()))
-                        continue;
-                    if (!cniHeader) {
-                        cardNotImplemented.append("\nEdition: ").append(e.getName()).append(" ").append("(").append(e.getCode()).append("/").append(e.getCode2()).append(")\n");
-                        cniHeader = true;
+                futures.add(CompletableFuture.supplyAsync(()-> {
+                    final String c = entry.getKey();
+                    final int artID = entry.getValue().getRight();
+                    final boolean isFunny = entry.getValue().getLeft();
+                    PaperCard cp = getCommonCards().getCard(c, e.getCode(), artID);
+                    if (cp == null) {
+                        cp = getVariantCards().getCard(c, e.getCode(), artID);
                     }
-                    cardNotImplemented.append(" ").append(c).append("\n");
-                    notImplementedCount++;
-                    continue;
-                }
-
-                // check the front image
-                imagePath = ImageUtil.getImageRelativePath(cp, "", true, false);
-                if (imagePath != null) {
-                    File file = ImageKeys.getImageFile(imagePath);
-                    if (file == null && ImageKeys.hasSetLookup(imagePath))
-                        file = ImageKeys.setLookUpFile(imagePath, imagePath+"border");
-                    if (file == null) {
-                        if (!nifHeader) {
-                            noImageFound.append("Edition: ").append(e.getName()).append(" ").append("(").append(e.getCode()).append("/").append(e.getCode2()).append(")\n");
-                            nifHeader = true;
-                        }
-                        noImageFound.append(" ").append(imagePath).append("\n");
-                        missingCount++;
+                    if (cp == null) {
+                        if (isFunny) //skip funny cards
+                            return null;
+                        if (!loadNonLegalCards && CardEdition.Type.FUNNY.equals(e.getType()))
+                            return null;
+                        EDITION_Q.add(e.getCode() + "_" + e.getName());
+                        CNI_Q.add(e.getCode() + "_" + c + "\n");
+                        return null;
                     }
-                }
-
-                // check the back face
-                if (cp.hasBackFace()) {
-                    imagePath = ImageUtil.getImageRelativePath(cp, "back", true, false);
+                    // check the front image
+                    String imagePath = ImageUtil.getImageRelativePath(cp, "", true, false);
                     if (imagePath != null) {
                         File file = ImageKeys.getImageFile(imagePath);
                         if (file == null && ImageKeys.hasSetLookup(imagePath))
-                            file = ImageKeys.setLookUpFile(imagePath, imagePath+"border");
+                            file = ImageKeys.setLookUpFile(imagePath, imagePath +"border");
                         if (file == null) {
-                            if (!nifHeader) {
-                                noImageFound.append("Edition: ").append(e.getName()).append(" ").append("(").append(e.getCode()).append("/").append(e.getCode2()).append(")\n");
-                                nifHeader = true;
-                            }
-                            noImageFound.append(" ").append(imagePath).append("\n");
-                            missingCount++;
+                            if (imagePath.isEmpty())
+                                return null;
+                            EDITION_Q.add(e.getCode() + "_" + e.getName());
+                            NIF_Q.add(e.getCode() + "_" + imagePath + "\n");
                         }
                     }
-                }
+                    // check the back face
+                    if (cp.hasBackFace()) {
+                        imagePath = ImageUtil.getImageRelativePath(cp, "back", true, false);
+                        if (imagePath != null) {
+                            File file = ImageKeys.getImageFile(imagePath);
+                            if (file == null && ImageKeys.hasSetLookup(imagePath))
+                                file = ImageKeys.setLookUpFile(imagePath, imagePath +"border");
+                            if (file == null) {
+                                if (imagePath.isEmpty())
+                                    return null;
+                                EDITION_Q.add(e.getCode() + "_" + e.getName());
+                                NIF_Q.add(e.getCode() + "_" + imagePath + "\n");
+                            }
+                        }
+                    }
+                    return null;
+                }).exceptionally(ex -> {
+                    ex.printStackTrace();
+                    return null;
+                }));
             }
+            CompletableFuture<?>[] futuresArray = futures.toArray(new CompletableFuture<?>[0]);
+            CompletableFuture.allOf(futuresArray).join();
+            futures.clear();
 
             // TODO: Audit token images here...
-            for(Map.Entry<String, Integer> tokenEntry : e.getTokens().entrySet()) {
-                String name = tokenEntry.getKey();
-                artIndex = tokenEntry.getValue();
+            for(Map.Entry<String, Collection<CardEdition.EditionEntry>> tokenEntry : e.getTokens().asMap().entrySet()) {
+                final String name = tokenEntry.getKey();
+                final int artIndex = tokenEntry.getValue().size();
                 try {
                     PaperToken token = getAllTokens().getToken(name, e.getCode());
                     if (token == null) {
@@ -851,33 +869,90 @@ public class StaticData {
                         String imgKey = token.getImageKey(i);
                         File file = ImageKeys.getImageFile(imgKey);
                         if (file == null) {
-                            if (!nifHeader) {
-                                noImageFound.append("Edition: ").append(e.getName()).append(" ").append("(").append(e.getCode()).append("/").append(e.getCode2()).append(")\n");
-                                nifHeader = true;
-                            }
-                            if (!tokenHeader) {
-                                noImageFound.append("\nTOKENS\n");
-                                tokenHeader = true;
-                            }
-                            noImageFound.append(" ").append(token.getImageFilename(i + 1)).append("\n");
-                            missingCount++;
+                            EDITION_Q.add(e.getCode() + "_" + e.getName());
+                            TOKEN_Q.add(e.getCode() + "_" + token.getImageFilename(i + 1) + "\n");
                         }
                     }
                 } catch(Exception ex) {
                     System.out.println("No Token found: " + name + " in " + e.getName());
                 }
             }
-            if (nifHeader)
+        }
+        // stream().toList() causes crash on Android, use Collectors.toList()
+        List<String> NIF = new ArrayList<>(NIF_Q).stream().sorted().collect(Collectors.toList());
+        List<String> CNI = new ArrayList<>(CNI_Q).stream().sorted().collect(Collectors.toList());
+        List<String> TOK = new ArrayList<>(TOKEN_Q).stream().sorted().collect(Collectors.toList());
+        List<String> sorted_editions = EDITION_Q.stream().distinct().sorted().collect(Collectors.toList());
+        for (String edition : sorted_editions) {
+            String[] arr =  edition.split("_");
+            String code = arr[0];
+            boolean NIF_TITLE = false, CNI_TITLE = false, TOK_TITLE = false;
+            for (String nif : NIF) {
+                if (nif.startsWith(code)) {
+                    if (!nifHeader) {
+                        noImageFound.append("\n-------------------\n");
+                        noImageFound.append("NO IMAGE FOUND LIST\n");
+                        noImageFound.append("-------------------\n\n");
+                        nifHeader = true;
+                    }
+                    if (!NIF_TITLE) {
+                        noImageFound.append(edition.replace(code + "_","")).append(" (").append(code).append(")").append("\n");
+                        NIF_TITLE = true;
+                    }
+                    noImageFound.append("    ").append(nif.replace(code + "_", ""));
+                }
+            }
+            if (NIF_TITLE)
                 noImageFound.append("\n");
+            for (String tok : TOK) {
+                if (tok.startsWith(code)) {
+                    if (!nifHeader) {
+                        noImageFound.append("\n-------------------\n");
+                        noImageFound.append("NO IMAGE FOUND LIST\n");
+                        noImageFound.append("-------------------\n\n");
+                        nifHeader = true;
+                    }
+                    if (!NIF_TITLE) {
+                        noImageFound.append(edition.replace(code + "_","")).append(" (").append(code).append(")").append("\n");
+                        NIF_TITLE = true;
+                    }
+                    if (!TOK_TITLE) {
+                        noImageFound.append("  TOKENS\n");
+                        TOK_TITLE = true;
+                    }
+                    noImageFound.append("    ").append(tok.replace(code + "_", ""));
+                }
+            }
+            if (TOK_TITLE)
+                noImageFound.append("\n");
+            for (String cni : CNI) {
+                if (cni.startsWith(code)) {
+                    if (!cniHeader) {
+                        cardNotImplemented.append("\n-------------------\n");
+                        cardNotImplemented.append("UNIMPLEMENTED CARD LIST\n");
+                        cardNotImplemented.append("-------------------\n\n");
+                        cniHeader = true;
+                    }
+                    if (!CNI_TITLE) {
+                        cardNotImplemented.append(edition.replace(code + "_","")).append(" (").append(code).append(")").append("\n");
+                        CNI_TITLE = true;
+                    }
+                    cardNotImplemented.append("     ").append(cni.replace(code + "_", ""));
+                }
+            }
+            if (CNI_TITLE)
+                cardNotImplemented.append("\n");
         }
 
-        String totalStats = "Missing images: " + missingCount + "\nUnimplemented cards: " + notImplementedCount + "\n";
+        final int missingImages = NIF.size() + TOK.size();
+        final int unimplemenedCards = CNI.size();
+        String totalStats = "Missing images: " + missingImages + "\nUnimplemented cards: " + unimplemenedCards + "\n";
         cardNotImplemented.append("\n-----------\n");
         cardNotImplemented.append(totalStats);
         cardNotImplemented.append("-----------\n\n");
 
         noImageFound.append(cardNotImplemented); // combine things together...
-        return Pair.of(missingCount, notImplementedCount);
+        return Pair.of(missingImages, unimplemenedCards);
     }
 
     private String prettifyCardArtPreferenceName(CardDb.CardArtPreference preference) {
@@ -900,6 +975,13 @@ public class StaticData {
         this.enableSmartCardArtSelection = isEnabled;
     }
 
+    public boolean useSourceImageForClone() {
+        return sourceImageForClone;
+    }
+    public void setSourceImageForClone(final boolean b) {
+        this.sourceImageForClone = b;
+    }
+
     public boolean isRebalanced(String name)
     {
         if (!name.startsWith("A-")) {
@@ -912,5 +994,24 @@ public class StaticData {
             }
         }
         return false;
+    }
+    public String getOtherImageKey(String name, String set) {
+        if (this.editions.get(set) != null) {
+            String realSetCode = this.editions.get(set).getOtherSet(name);
+            if (realSetCode != null) {
+                CardEdition.EditionEntry ee = this.editions.get(realSetCode).findOther(name);
+                if (ee != null) { // TODO add collector Number and new ImageKey format
+                    return ImageKeys.getTokenKey(String.format("%s|%s|%s", name, realSetCode, ee.collectorNumber()));
+                }
+            }
+        }
+        for (CardEdition e : this.editions) {
+            CardEdition.EditionEntry ee = e.findOther(name);
+            if (ee != null) { // TODO add collector Number and new ImageKey format
+                return ImageKeys.getTokenKey(String.format("%s|%s|%s", name, e.getCode(), ee.collectorNumber()));
+            }
+        }
+        // final fallback
+        return ImageKeys.getTokenKey(name);
     }
 }

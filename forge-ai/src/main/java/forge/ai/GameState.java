@@ -7,11 +7,13 @@ import com.google.common.collect.Multimap;
 import forge.StaticData;
 import forge.card.CardEdition;
 import forge.card.CardStateName;
+import forge.card.GamePieceType;
 import forge.card.MagicColor;
 import forge.card.mana.ManaAtom;
 import forge.game.Game;
 import forge.game.GameEntity;
 import forge.game.ability.AbilityFactory;
+import forge.game.ability.ApiType;
 import forge.game.ability.effects.DetachedCardEffect;
 import forge.game.card.*;
 import forge.game.card.token.TokenInfo;
@@ -60,6 +62,7 @@ public abstract class GameState {
         private int landsPlayed = 0;
         private int landsPlayedLastTurn = 0;
         private int numRingTemptedYou = 0;
+        private int speed = 0;
         private String precast = null;
         private String putOnStack = null;
         private final Map<ZoneType, String> cardTexts = new EnumMap<>(ZoneType.class);
@@ -79,8 +82,7 @@ public abstract class GameState {
     private final Map<Card, List<String>> cardToRememberedId = new HashMap<>();
     private final Map<Card, List<String>> cardToImprintedId = new HashMap<>();
     private final Map<Card, List<String>> cardToMergedCards = new HashMap<>();
-    private final Map<Card, String> cardToNamedCard = new HashMap<>();
-    private final Map<Card, String> cardToNamedCard2 = new HashMap<>();
+    private final Map<Card, List<String>> cardToNamedCard = new HashMap<>();
     private final Map<Card, String> cardToExiledWithId = new HashMap<>();
     private final Map<Card, Card> cardAttackMap = new HashMap<>();
 
@@ -137,6 +139,7 @@ public abstract class GameState {
             sb.append(TextUtil.concatNoSpace(prefix + "landsplayed=", String.valueOf(p.landsPlayed), "\n"));
             sb.append(TextUtil.concatNoSpace(prefix + "landsplayedlastturn=", String.valueOf(p.landsPlayedLastTurn), "\n"));
             sb.append(TextUtil.concatNoSpace(prefix + "numringtemptedyou=", String.valueOf(p.numRingTemptedYou), "\n"));
+            sb.append(TextUtil.concatNoSpace(prefix + "speed=", String.valueOf(p.speed), "\n"));
             if (!p.counters.isEmpty()) {
                 sb.append(TextUtil.concatNoSpace(prefix + "counters=", p.counters, "\n"));
             }
@@ -167,6 +170,7 @@ public abstract class GameState {
             p.counters = countersToString(player.getCounters());
             p.manaPool = processManaPool(player.getManaPool());
             p.numRingTemptedYou = player.getNumRingTemptedYou();
+            p.speed = player.getSpeed();
             playerStates.add(p);
         }
 
@@ -225,7 +229,7 @@ public abstract class GameState {
                 if (card instanceof DetachedCardEffect) {
                     continue;
                 }
-                int playerIndex = game.getPlayers().indexOf(card.getController());
+                int playerIndex = game.getPlayers().indexOf(card.getZone().getPlayer());
                 addCard(zone, playerStates.get(playerIndex).cardTexts, card);
             }
         }
@@ -260,12 +264,14 @@ public abstract class GameState {
             }
 
             if (c.hasMergedCard()) {
+                String suffix = c.getTopMergedCard().hasPaperFoil() ? "+" : "";
                 // we have to go by the current top card name here
-                newText.append(c.getTopMergedCard().getPaperCard().getName()).append("|Set:")
+                newText.append(c.getTopMergedCard().getPaperCard().getName()).append(suffix).append("|Set:")
                         .append(c.getTopMergedCard().getPaperCard().getEdition()).append("|Art:")
                         .append(c.getTopMergedCard().getPaperCard().getArtIndex());
             } else {
-                newText.append(c.getPaperCard().getName()).append("|Set:").append(c.getPaperCard().getEdition())
+                String suffix = c.hasPaperFoil() ? "+" : "";
+                newText.append(c.getPaperCard().getName()).append(suffix).append("|Set:").append(c.getPaperCard().getEdition())
                         .append("|Art:").append(c.getPaperCard().getArtIndex());
             }
         }
@@ -293,6 +299,12 @@ public abstract class GameState {
             if (c.isRenowned()) {
                 newText.append("|Renowned");
             }
+            if (c.isSolved()) {
+                newText.append("|Solved");
+            }
+            if (c.isSuspected()) {
+                newText.append("|Suspected");
+            }
             if (c.isMonstrous()) {
                 newText.append("|Monstrous");
             }
@@ -305,19 +317,25 @@ public abstract class GameState {
                 if (c.isManifested()) {
                     newText.append(":Manifested");
                 }
+                if (c.isCloaked()) {
+                    newText.append(":Cloaked");
+                }
             }
-            if (c.getCurrentStateName().equals(CardStateName.Transformed)) {
-                newText.append("|Transformed");
-            } else if (c.getCurrentStateName().equals(CardStateName.Flipped)) {
+            if (c.getCurrentStateName().equals(CardStateName.Flipped)) {
                 newText.append("|Flipped");
             } else if (c.getCurrentStateName().equals(CardStateName.Meld)) {
                 newText.append("|Meld");
                 if (c.getMeldedWith() != null) {
+                    String suffix = c.getMeldedWith().hasPaperFoil() ? "+" : "";
                     newText.append(":");
-                    newText.append(c.getMeldedWith().getName());
+                    newText.append(c.getMeldedWith().getName()).append(suffix);
                 }
-            } else if (c.getCurrentStateName().equals(CardStateName.Modal)) {
-                newText.append("|Modal");
+            } else if (c.getCurrentStateName().equals(CardStateName.Backside)) {
+                if (c.isModal()) {
+                    newText.append("|Modal");
+                } else {
+                    newText.append("|Transformed");
+                }
             }
 
             if (c.getPlayerAttachedTo() != null) {
@@ -342,9 +360,6 @@ public abstract class GameState {
             }
             if (!c.getNamedCard().isEmpty()) {
                 newText.append("|NamedCard:").append(c.getNamedCard());
-            }
-            if (!c.getNamedCard2().isEmpty()) {
-                newText.append("|NamedCard2:").append(c.getNamedCard2());
             }
 
             List<String> chosenCardIds = Lists.newArrayList();
@@ -385,6 +400,10 @@ public abstract class GameState {
                 }
                 newText.append("|MergedCards:").append(TextUtil.join(mergedCardNames, ","));
             }
+
+            if (c.getClassLevel() > 1) {
+                newText.append("|ClassLevel:").append(c.getClassLevel());
+            }
         }
 
         if (zoneType == ZoneType.Exile) {
@@ -401,11 +420,10 @@ public abstract class GameState {
             }
             if (c.isForetold()) {
                 newText.append("|Foretold");
+                if (c.enteredThisTurn()) {
+                    newText.append("|ForetoldThisTurn");
+                }
             }
-            if (c.isForetoldThisTurn()) {
-                newText.append("|ForetoldThisTurn");
-            }
-
         }
 
         if (zoneType == ZoneType.Battlefield || zoneType == ZoneType.Exile) {
@@ -424,6 +442,13 @@ public abstract class GameState {
                 if (def instanceof Card) {
                     newText.append(":").append(def.getId());
                 }
+            }
+        }
+
+        if (!c.getUnlockedRooms().isEmpty()) {
+            for (CardStateName stateName : c.getUnlockedRooms()) {
+                newText.append("|UnlockedRoom:");
+                newText.append(stateName.name());
             }
         }
 
@@ -526,6 +551,8 @@ public abstract class GameState {
             getPlayerState(categoryName).landsPlayedLastTurn = Integer.parseInt(categoryValue);
         } else if (categoryName.endsWith("numringtemptedyou")) {
             getPlayerState(categoryName).numRingTemptedYou = Integer.parseInt(categoryValue);
+        } else if (categoryName.endsWith("speed")) {
+            getPlayerState(categoryName).speed = Integer.parseInt(categoryValue);
         } else if (categoryName.endsWith("play") || categoryName.endsWith("battlefield")) {
             getPlayerState(categoryName).cardTexts.put(ZoneType.Battlefield, categoryValue);
         } else if (categoryName.endsWith("hand")) {
@@ -618,6 +645,7 @@ public abstract class GameState {
         }
 
         game.getStack().setResolving(false);
+        game.getStack().unfreezeStack();
 
         // Advance to a certain phase, activating all triggered abilities
         if (advPhase != null) {
@@ -634,6 +662,9 @@ public abstract class GameState {
 
         // prevent interactions with objects from old state
         game.copyLastState();
+
+        // Store snapshot for restoring
+        game.stashGameState();
 
         // Set negative or zero life after state effects if need be, important for some puzzles that rely on
         // pre-setting negative life (e.g. PS_NEO4).
@@ -1012,15 +1043,11 @@ public abstract class GameState {
         }
 
         // Named card
-        for (Entry<Card, String> entry : cardToNamedCard.entrySet()) {
+        for (Entry<Card, List<String>> entry : cardToNamedCard.entrySet()) {
             Card c = entry.getKey();
-            c.setNamedCard(entry.getValue());
-        }
-
-        // Named card 2
-        for (Entry<Card,String> entry : cardToNamedCard2.entrySet()) {
-            Card c = entry.getKey();
-            c.setNamedCard2(entry.getValue());
+            for (String s : entry.getValue()) {
+                c.addNamedCard(s);
+            }
         }
 
         // Chosen cards
@@ -1034,7 +1061,7 @@ public abstract class GameState {
         // Unattach all permanents first
         for (Entry<Card, Integer> entry : cardToAttachId.entrySet()) {
             Card attachedTo = idToCard.get(entry.getValue());
-            attachedTo.unAttachAllCards();
+            attachedTo.unAttachAllCards(attachedTo);
         }
 
         // Attach permanents by ID
@@ -1117,7 +1144,7 @@ public abstract class GameState {
             p.getZone(zt).removeAllCards(true);
         }
 
-        p.setCommanders(Lists.newArrayList());
+        p.getCommanders().clear();
         p.clearTheRing();
 
         Map<ZoneType, CardCollectionView> playerCards = new EnumMap<>(ZoneType.class);
@@ -1130,6 +1157,7 @@ public abstract class GameState {
         p.setLandsPlayedThisTurn(state.landsPlayed);
         p.setLandsPlayedLastTurn(state.landsPlayedLastTurn);
         p.setNumRingTemptedYou(state.numRingTemptedYou);
+        p.setSpeed(state.speed);
 
         p.clearPaidForSA();
 
@@ -1157,7 +1185,7 @@ public abstract class GameState {
                         // (will be overridden later, so the actual value shouldn't matter)
 
                         //FIXME it shouldn't be able to attach itself
-                        c.setEntityAttachedTo(CardFactory.copyCard(c, true));
+                        c.setEntityAttachedTo(new CardCopyService(c).copyCard(true));
                     }
 
                     if (cardsWithoutETBTrigs.contains(c)) {
@@ -1175,9 +1203,8 @@ public abstract class GameState {
                 zone.setCards(kv.getValue());
             }
         }
-        for (Card cmd : p.getCommanders()) {
-            p.getZone(ZoneType.Command).add(Player.createCommanderEffect(p.getGame(), cmd));
-        }
+        if (!p.getCommanders().isEmpty())
+            p.createCommanderEffect(); //Original one was lost, and the one made by addCommander would have been erased by setCards.
 
         updateManaPool(p, state.manaPool, true, false);
         updateManaPool(p, state.persistentMana, false, true);
@@ -1193,6 +1220,7 @@ public abstract class GameState {
                 p.setRingLevel(i);
             }
         }
+        if (state.speed > 0) p.createSpeedEffect();
     }
 
     /**
@@ -1240,12 +1268,12 @@ public abstract class GameState {
             } else if (cardinfo[0].startsWith("T:")) {
                 String tokenStr = cardinfo[0].substring(2);
                 PaperToken token = StaticData.instance().getAllTokens().getToken(tokenStr,
-                        setCode != null ? setCode : CardEdition.UNKNOWN.getName());
+                        setCode != null ? setCode : CardEdition.UNKNOWN_CODE);
                 if (token == null) {
                     System.err.println("ERROR: Tried to create a non-existent token named " + cardinfo[0] + " when loading game state!");
                     continue;
                 }
-                c = Card.fromPaperCard(token, player, player.getGame());
+                c = CardFactory.getCard(token, player, player.getGame());
             } else {
                 PaperCard pc = StaticData.instance().getCommonCards().getCard(cardinfo[0], setCode, artID);
                 if (pc == null) {
@@ -1262,9 +1290,15 @@ public abstract class GameState {
 
             for (final String info : cardinfo) {
                 if (info.startsWith("Tapped")) {
-                    c.tap(false);
+                    c.tap(false, null, null);
                 } else if (info.startsWith("Renowned")) {
                     c.setRenowned(true);
+                } else if (info.startsWith("Solved")) {
+                    c.setSolved(true);
+                } else if (info.startsWith("Saddled")) {
+                    c.setSaddled(true);
+                } else if (info.startsWith("Suspected")) {
+                    c.setSuspected(true);
                 } else if (info.startsWith("Monstrous")) {
                     c.setMonstrous(true);
                 } else if (info.startsWith("PhasedOut")) {
@@ -1277,10 +1311,13 @@ public abstract class GameState {
                 } else if (info.startsWith("FaceDown")) {
                     c.turnFaceDown(true);
                     if (info.endsWith("Manifested")) {
-                        c.setManifested(true);
+                        c.setManifested(new SpellAbility.EmptySa(ApiType.Manifest, c));
                     }
-                } else if (info.startsWith("Transformed")) {
-                    c.setState(CardStateName.Transformed, true);
+                    if (info.endsWith("Cloaked")) {
+                        c.setCloaked(new SpellAbility.EmptySa(ApiType.Cloak, c));
+                    }
+                } else if (info.startsWith("Transformed") || info.startsWith("Modal")) {
+                    c.setState(CardStateName.Backside, true);
                     c.setBackSide(true);
                 } else if (info.startsWith("Flipped")) {
                     c.setState(CardStateName.Flipped, true);
@@ -1298,12 +1335,9 @@ public abstract class GameState {
                     }
                     c.setState(CardStateName.Meld, true);
                     c.setBackSide(true);
-                } else if (info.startsWith("Modal")) {
-                    c.setState(CardStateName.Modal, true);
-                    c.setBackSide(true);
                 }
                 else if (info.startsWith("OnAdventure")) {
-                    String abAdventure = "DB$ Effect | RememberObjects$ Self | StaticAbilities$ Play | ForgetOnMoved$ Exile | Duration$ Permanent | ConditionDefined$ Self | ConditionPresent$ Card.nonCopiedSpell";
+                    String abAdventure = "DB$ Effect | RememberObjects$ Self | StaticAbilities$ Play | ForgetOnMoved$ Exile | Duration$ Permanent | ConditionDefined$ Self | ConditionPresent$ Card.!copiedSpell";
                     SpellAbility saAdventure = AbilityFactory.getAbility(abAdventure, c);
                     StringBuilder sbPlay = new StringBuilder();
                     sbPlay.append("Mode$ Continuous | MayPlay$ True | EffectZone$ Command | Affected$ Card.IsRemembered+nonAdventure");
@@ -1314,10 +1348,7 @@ public abstract class GameState {
                     c.setExiledWith(c); // This seems to be the way it's set up internally. Potentially not needed here?
                     c.setExiledBy(c.getController());
                 } else if (info.startsWith("IsCommander")) {
-                    c.setCommander(true);
-                    List<Card> cmd = Lists.newArrayList(player.getCommanders());
-                    cmd.add(c);
-                    player.setCommanders(cmd);
+                    player.addCommander(c);
                 } else if (info.startsWith("IsRingBearer")) {
                     c.setRingBearer(true);
                     player.setRingBearer(c);
@@ -1358,9 +1389,8 @@ public abstract class GameState {
                     List<String> cardNames = Arrays.asList(info.substring(info.indexOf(':') + 1).split(","));
                     cardToMergedCards.put(c, cardNames);
                 } else if (info.startsWith("NamedCard:")) {
-                    cardToNamedCard.put(c, info.substring(info.indexOf(':') + 1));
-                } else if (info.startsWith("NamedCard2:")) {
-                    cardToNamedCard2.put(c, info.substring(info.indexOf(':') + 1));
+                    List<String> cardNames = Arrays.asList(info.substring(info.indexOf(':') + 1).split(","));
+                    cardToNamedCard.put(c, cardNames);
                 } else if (info.startsWith("ExecuteScript:")) {
                     cardToScript.put(c, info.substring(info.indexOf(':') + 1));
                 } else if (info.startsWith("RememberedCards:")) {
@@ -1381,11 +1411,15 @@ public abstract class GameState {
                 } else if (info.equals("Foretold")) {
                     c.setForetold(true);
                     c.turnFaceDown(true);
-                    c.addMayLookTemp(c.getOwner());
+                    c.addMayLookFaceDownExile(c.getOwner());
                 } else if (info.equals("ForetoldThisTurn")) {
-                    c.setForetoldThisTurn(true);
+                    c.setTurnInZone(turn);
                 } else if (info.equals("IsToken")) {
-                    c.setToken(true);
+                    c.setGamePieceType(GamePieceType.TOKEN);
+                } else if (info.startsWith("ClassLevel:")) {
+                    c.setClassLevel(Integer.parseInt(info.substring(info.indexOf(':') + 1)));
+                } else if (info.startsWith("UnlockedRoom:")) {
+                    c.unlockRoom(c.getController(), CardStateName.smartValueOf(info.substring(info.indexOf(':') + 1)));
                 }
             }
 

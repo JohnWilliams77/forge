@@ -1,7 +1,6 @@
 package forge.screens.home;
 
 import java.awt.Font;
-import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
 import java.util.ArrayList;
@@ -12,7 +11,6 @@ import java.util.Map;
 import java.util.Vector;
 
 import javax.swing.*;
-import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
 
 import com.google.common.collect.ImmutableList;
@@ -36,6 +34,7 @@ import forge.gamemodes.match.LobbySlotType;
 import forge.gamemodes.net.event.UpdateLobbyPlayerEvent;
 import forge.gui.CardDetailPanel;
 import forge.gui.GuiBase;
+import forge.gui.SwingPrefBinders;
 import forge.gui.interfaces.ILobbyView;
 import forge.gui.util.SOptionPane;
 import forge.interfaces.IPlayerChangeListener;
@@ -53,10 +52,7 @@ import forge.toolbox.FScrollPanel;
 import forge.toolbox.FSkin;
 import forge.toolbox.FSkin.SkinImage;
 import forge.toolbox.FTextField;
-import forge.util.Aggregates;
-import forge.util.Lang;
-import forge.util.Localizer;
-import forge.util.NameGenerator;
+import forge.util.*;
 import net.miginfocom.swing.MigLayout;
 
 /**
@@ -79,7 +75,9 @@ public class VLobby implements ILobbyView {
 
     private final StartButton btnStart  = new StartButton();
     private final JPanel pnlStart = new JPanel(new MigLayout("insets 0, gap 0, wrap 2"));
-    private final JComboBox gamesInMatch = new JComboBox(new String[] {"1","3","5"});
+    private final JComboBox<String> gamesInMatch = new JComboBox<String>(new String[] {"1","3","5"});
+    private final SwingPrefBinders.ComboBox gamesInMatchBinder =
+      new SwingPrefBinders.ComboBox(FPref.UI_MATCHES_PER_GAME, gamesInMatch);
     private final JPanel gamesInMatchFrame = new JPanel(new MigLayout("insets 0, gap 0, wrap 2"));
     private final JPanel constructedFrame = new JPanel(new MigLayout("insets 0, gap 0, wrap 2")); // Main content frame
 
@@ -184,23 +182,22 @@ public class VLobby implements ILobbyView {
             pnlStart.setOpaque(false);
             pnlStart.add(btnStart, "align center");
             // Start button event handling
-            btnStart.addActionListener(new ActionListener() {
-                @Override
-                public void actionPerformed(final ActionEvent arg0) {
-                    Runnable startGame = lobby.startGame();
-                    if (startGame != null) {
-                        if (!gamesInMatch.getSelectedItem().equals(ForgePreferences.FPref.UI_MATCHES_PER_GAME)) {
-                            FModel.getPreferences().setPref(FPref.UI_MATCHES_PER_GAME, (String) gamesInMatch.getSelectedItem());
-                        }
-                        startGame.run();
-                    }
+            btnStart.addActionListener(arg0 -> {
+                Runnable startGame = lobby.startGame();
+                if (startGame != null) {
+                    startGame.run();
                 }
             });
         }
+        String defaultGamesInMatch = FModel.getPreferences().getPref(FPref.UI_MATCHES_PER_GAME);
+        if (defaultGamesInMatch == null || defaultGamesInMatch.isEmpty()) {
+            defaultGamesInMatch = "3";
+        }
+
         gamesInMatchFrame.add(newLabel(localizer.getMessage("lblGamesInMatch")), "w 150px!, h 30px!");
         gamesInMatchFrame.add(gamesInMatch, "w 50px!, h 30px!");
         gamesInMatchFrame.setOpaque(false);
-        gamesInMatch.setSelectedItem("3");
+
         pnlStart.add(gamesInMatchFrame);
     }
 
@@ -394,25 +391,13 @@ public class VLobby implements ILobbyView {
     @SuppressWarnings("serial")
     private void buildDeckPanels(final int playerIndex) {
         // Scheme deck list
-        buildDeckPanel(localizer.getMessage("lblSchemeDeck"), playerIndex, schemeDeckLists, schemeDeckPanels, new ListSelectionListener() {
-            @Override public final void valueChanged(final ListSelectionEvent e) {
-                selectSchemeDeck(playerIndex);
-            }
-        });
+        buildDeckPanel(localizer.getMessage("lblSchemeDeck"), playerIndex, schemeDeckLists, schemeDeckPanels, e -> selectSchemeDeck(playerIndex));
 
         // Planar deck list
-        buildDeckPanel(localizer.getMessage("lblPlanarDeck"), playerIndex, planarDeckLists, planarDeckPanels, new ListSelectionListener() {
-            @Override public final void valueChanged(final ListSelectionEvent e) {
-                selectPlanarDeck(playerIndex);
-            }
-        });
+        buildDeckPanel(localizer.getMessage("lblPlanarDeck"), playerIndex, planarDeckLists, planarDeckPanels, e -> selectPlanarDeck(playerIndex));
 
         // Vanguard avatar list
-        buildDeckPanel(localizer.getMessage("lblVanguardAvatar"), playerIndex, vgdAvatarLists, vgdPanels, new ListSelectionListener() {
-            @Override public final void valueChanged(final ListSelectionEvent e) {
-                selectVanguardAvatar(playerIndex);
-            }
-        });
+        buildDeckPanel(localizer.getMessage("lblVanguardAvatar"), playerIndex, vgdAvatarLists, vgdPanels, e -> selectVanguardAvatar(playerIndex));
         Iterables.getLast(vgdAvatarLists).setListData(isPlayerAI(playerIndex) ? aiListData : humanListData);
         Iterables.getLast(vgdAvatarLists).setSelectedIndex(0);
         final CardDetailPanel vgdDetail = new CardDetailPanel();
@@ -454,7 +439,7 @@ public class VLobby implements ILobbyView {
         }
         final Collection<DeckProxy> selectedDecks = mainChooser.getLstDecks().getSelectedItems();
         if (playerIndex < activePlayersNum && lobby.mayEdit(playerIndex)) {
-            final String text = type.toString() + ": " + Lang.joinHomogenous(selectedDecks, DeckProxy.FN_GET_NAME);
+            final String text = type.toString() + ": " + Lang.joinHomogenous(selectedDecks, DeckProxy::getName);
             if (isCommanderDeck) {
                 getPlayerPanel(playerIndex).setCommanderDeckSelectorButtonText(text);
             } else {
@@ -623,7 +608,7 @@ public class VLobby implements ILobbyView {
     public JPanel getConstructedFrame() { return constructedFrame; }
     public JPanel getPanelStart() { return pnlStart; }
     public List<FDeckChooser> getDeckChoosers() {
-        List<FDeckChooser> choosers = new ArrayList<>(playerPanels.size());
+        List<FDeckChooser> choosers = Lists.newArrayList();
         for (final PlayerPanel playerPanel : playerPanels) {
             choosers.add(playerPanel.getDeckChooser());
         }
@@ -826,12 +811,9 @@ public class VLobby implements ILobbyView {
         });
     }
 
-    final ActionListener nameListener = new ActionListener() {
-        @Override
-        public void actionPerformed(final ActionEvent e) {
-            final FTextField nField = (FTextField)e.getSource();
-            nField.transferFocus();
-        }
+    final ActionListener nameListener = e -> {
+        final FTextField nField = (FTextField)e.getSource();
+        nField.transferFocus();
     };
 
     /////////////////////////////////////
@@ -876,6 +858,11 @@ public class VLobby implements ILobbyView {
     /** Return the Vanguard avatars not flagged RemoveDeck:All or RemoveDeck:Random. */
     public List<PaperCard> getNonRandomAiAvatars() {
         return nonRandomAiAvatars;
+    }
+
+    /** Return the gamesInMatchBinder */
+    public SwingPrefBinders.ComboBox getGamesInMatchBinder() {
+      return gamesInMatchBinder;
     }
 
     /** Populate vanguard lists. */

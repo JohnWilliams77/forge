@@ -17,20 +17,20 @@
  */
 package forge.game.trigger;
 
-import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
+import forge.util.IterableUtil;
 import org.apache.commons.lang3.ArrayUtils;
 
-import com.google.common.base.Predicates;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 
 import forge.game.ability.AbilityKey;
 import forge.game.ability.AbilityUtils;
 import forge.game.card.Card;
+import forge.game.card.CardCollectionView;
 import forge.game.card.CardLists;
 import forge.game.card.CardPredicates;
 import forge.game.spellability.SpellAbility;
@@ -100,22 +100,28 @@ public class TriggerChangesZone extends Trigger {
             }
         }
 
+        if ("Battlefield".equals(getParam("Origin")) && getActiveZone() != null && getActiveZone().contains(ZoneType.Graveyard)) {
+            // extra check for Boneyard Scourge
+            CardCollectionView lastState = (CardCollectionView) runParams.get(AbilityKey.LastStateGraveyard);
+            if (!lastState.contains(getHostCard())) {
+                return false;
+            }
+        }
+
         if (hasParam("ValidCard")) {
             Card moved = (Card) runParams.get(AbilityKey.Card);
-            boolean leavesLKIZone = "Battlefield".equals(getParam("Origin"));
-            leavesLKIZone |= "Exile".equals(getParam("Origin")) && (moved.getZone().is(ZoneType.Graveyard) ||
-                    moved.getZone().is(ZoneType.Command) || hasParam("UseLKI"));
 
-            if (leavesLKIZone) {
+            // CR 603.10a leaves battlefield or GY look back in time
+            if ("Battlefield".equals(getParam("Origin"))
+                    || ("Graveyard".equals(getParam("Origin")) && !"Battlefield".equals(getParam("Destination")))) {
                 moved = (Card) runParams.get(AbilityKey.CardLKI);
-            }
-            if ("Battlefield".equals(runParams.get(AbilityKey.Destination))) {
+            } else if ("Battlefield".equals(runParams.get(AbilityKey.Destination))) {
                 List<Card> etbLKI = moved.getController().getZone(ZoneType.Battlefield).getCardsAddedThisTurn(null);
-                Collections.sort(etbLKI, CardPredicates.compareByTimestamp());
+                etbLKI.sort(CardPredicates.compareByGameTimestamp());
                 moved = etbLKI.get(etbLKI.lastIndexOf(moved));
             }
 
-            if (!matchesValid(moved, getParam("ValidCard").split(","))) {
+            if (!matchesValidParam("ValidCard", moved)) {
                 return false;
             }
         }
@@ -155,16 +161,9 @@ public class TriggerChangesZone extends Trigger {
                 return false;
             }
 
-            final Card card = (Card) runParams.get(AbilityKey.Card);
-            if (card == null) {
-                return false;
-            }
+            final Card card = (Card) runParams.get(AbilityKey.CardLKI);
             final int rightSide = AbilityUtils.calculateAmount(getHostCard(), cond.substring(2), this);
-
-            // need to check the ChangeZone LKI copy for damage, otherwise it'll return 0 for a new object in the new zone
-            Card lkiCard = card.getGame().getChangeZoneLKIInfo(card);
-
-            final boolean expr = Expressions.compare(lkiCard.getAssignedDamage(), cond, rightSide);
+            final boolean expr = Expressions.compare(card.getAssignedDamage(), cond, rightSide);
             if (!expr) {
                 return false;
             }
@@ -186,7 +185,8 @@ public class TriggerChangesZone extends Trigger {
             thisTurnCast = CardLists.filterControlledByAsList(thisTurnCast, getHostCard().getController());
 
             // checks which card this spell was the castSA
-            int left = Iterables.indexOf(thisTurnCast, CardPredicates.castSA(Predicates.equalTo(getHostCard().getCastSA())));
+            SpellAbility castSA = getHostCard().getCastSA();
+            int left = IterableUtil.indexOf(thisTurnCast, CardPredicates.castSA(Predicate.isEqual(castSA)));
             int right = Integer.parseInt(compare.substring(2));
             if (!Expressions.compare(left + 1, compare, right)) {
                 return false;

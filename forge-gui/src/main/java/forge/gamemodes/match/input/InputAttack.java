@@ -17,12 +17,7 @@
  */
 package forge.gamemodes.match.input;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
-
 import com.google.common.collect.Sets;
-
 import forge.game.GameEntity;
 import forge.game.GameEntityView;
 import forge.game.card.Card;
@@ -41,6 +36,10 @@ import forge.player.PlayerControllerHuman;
 import forge.util.ITriggerEvent;
 import forge.util.Localizer;
 import forge.util.collect.FCollectionView;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 /**
  * <p>
@@ -69,7 +68,6 @@ public class InputAttack extends InputSyncronizedBase {
 
     @Override
     public final void showMessage() {
-        // TODO still seems to have some issues with multiple planeswalkers
         setCurrentDefender(defenders.getFirst());
 
         if (currentDefender == null) {
@@ -89,7 +87,7 @@ public class InputAttack extends InputSyncronizedBase {
     private void updatePrompt() {
         Localizer localizer = Localizer.getInstance();
         String alphaLabel = canCallBackAttackers() ? localizer.getMessage("lblCallBack") : localizer.getMessage("lblAlphaStrike");
-        getController().getGui().updateButtons(getOwner(), localizer.getMessage("lblOk"), alphaLabel, true, true, true);
+        getController().getGui().updateButtons(getOwner(), localizer.getMessage("lblOK"), alphaLabel, true, true, true);
     }
 
     private void disablePrompt() {
@@ -248,18 +246,18 @@ public class InputAttack extends InputSyncronizedBase {
     public String getActivateAction(Card card) {
         if (combat.isAttacking(card, currentDefender)) {
             if (potentialBanding) {
-                return "activate band with card";
+                return Localizer.getInstance().getMessage("lblActivateBand");
             }
-            return "remove card from combat";
+            return Localizer.getInstance().getMessage("lblRemoveFromCombat");
         }
         if (card.getController().isOpponentOf(playerAttacks)) {
             if (defenders.contains(card)) {
-                return "declare attackers for card";
+                return Localizer.getInstance().getMessage("lblDeclareAttackersForCard");
             }
             return null;
         }
         if (playerAttacks.getZone(ZoneType.Battlefield).contains(card) && CombatUtil.canAttack(card, currentDefender)) {
-            return "attack with card";
+            return Localizer.getInstance().getMessage("lblAttackWithCard");
         }
         return null;
     }
@@ -295,7 +293,9 @@ public class InputAttack extends InputSyncronizedBase {
                 getController().getGui().setHighlighted(PlayerView.get((Player) ge), ge == def);
             }
         }
-        potentialBanding = isBandingPossible();
+        if (def != null) {
+            potentialBanding = isBandingPossible();
+        }
 
         updateMessage();
     }
@@ -319,7 +319,7 @@ public class InputAttack extends InputSyncronizedBase {
     private boolean isBandingPossible() {
         final CardCollectionView possibleAttackers = playerAttacks.getCardsIn(ZoneType.Battlefield);
         for (final Card c : possibleAttackers) {
-            if ((c.hasKeyword(Keyword.BANDING) || c.hasStartOfKeyword("Bands with Other")) &&
+            if ((c.hasKeyword(Keyword.BANDING) || c.hasKeyword(Keyword.BANDSWITH)) &&
                     CombatUtil.canAttack(c, currentDefender)) {
                 return true;
             }

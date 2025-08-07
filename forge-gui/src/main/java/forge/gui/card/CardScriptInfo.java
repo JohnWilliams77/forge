@@ -17,13 +17,13 @@
  */
 package forge.gui.card;
 
+import forge.localinstance.properties.ForgeConstants;
+import forge.util.FileUtil;
+
 import java.io.File;
 import java.io.PrintWriter;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-
-import forge.localinstance.properties.ForgeConstants;
-import forge.util.FileUtil;
 
 public final class CardScriptInfo {
     private String text;
@@ -76,7 +76,7 @@ public final class CardScriptInfo {
                 ForgeConstants.USER_CUSTOM_CARDS_DIR + File.separator + String.valueOf(filename.charAt(0)),
                 ForgeConstants.USER_CUSTOM_CARDS_DIR,
             };
-            
+
             for (String folder : folders) {
                final File file = new File(folder + File.separator + filename);
                if (file.exists()) {

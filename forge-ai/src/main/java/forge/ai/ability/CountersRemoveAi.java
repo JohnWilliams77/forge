@@ -1,12 +1,8 @@
 package forge.ai.ability;
 
-import java.util.List;
-import java.util.Map;
-
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
-
+import forge.ai.AiAbilityDecision;
+import forge.ai.AiPlayDecision;
 import forge.ai.ComputerUtil;
 import forge.ai.ComputerUtilCard;
 import forge.ai.ComputerUtilCost;
@@ -14,13 +10,7 @@ import forge.ai.SpellAbilityAi;
 import forge.game.Game;
 import forge.game.GameEntity;
 import forge.game.ability.AbilityUtils;
-import forge.game.card.Card;
-import forge.game.card.CardCollection;
-import forge.game.card.CardCollectionView;
-import forge.game.card.CardLists;
-import forge.game.card.CardPredicates;
-import forge.game.card.CounterEnumType;
-import forge.game.card.CounterType;
+import forge.game.card.*;
 import forge.game.keyword.Keyword;
 import forge.game.phase.PhaseHandler;
 import forge.game.phase.PhaseType;
@@ -29,15 +19,11 @@ import forge.game.spellability.SpellAbility;
 import forge.game.spellability.TargetRestrictions;
 import forge.game.zone.ZoneType;
 
-public class CountersRemoveAi extends SpellAbilityAi {
+import java.util.List;
+import java.util.Map;
+import java.util.function.Predicate;
 
-    @Override
-    protected boolean canPlayWithoutRestrict(final Player ai, final SpellAbility sa) {
-        if ("Always".equals(sa.getParam("AILogic"))) {
-            return true;
-        }
-        return super.canPlayWithoutRestrict(ai, sa);
-    }
+public class CountersRemoveAi extends SpellAbilityAi {
 
     /*
      * (non-Javadoc)
@@ -59,29 +45,11 @@ public class CountersRemoveAi extends SpellAbilityAi {
     /*
      * (non-Javadoc)
      *
-     * @see
-     * forge.ai.SpellAbilityAi#checkPhaseRestrictions(forge.game.player.Player,
-     * forge.game.spellability.SpellAbility, forge.game.phase.PhaseHandler,
-     * java.lang.String)
-     */
-    @Override
-    protected boolean checkPhaseRestrictions(Player ai, SpellAbility sa, PhaseHandler ph, String logic) {
-        if ("EndOfOpponentsTurn".equals(logic)) {
-            if (!ph.is(PhaseType.END_OF_TURN) || !ph.getNextTurn().equals(ai)) {
-                return false;
-            }
-        }
-        return super.checkPhaseRestrictions(ai, sa, ph, logic);
-    }
-
-    /*
-     * (non-Javadoc)
-     *
      * @see forge.ai.SpellAbilityAi#checkApiLogic(forge.game.player.Player,
      * forge.game.spellability.SpellAbility)
      */
     @Override
-    protected boolean checkApiLogic(Player ai, SpellAbility sa) {
+    protected AiAbilityDecision checkApiLogic(Player ai, SpellAbility sa) {
         final String type = sa.getParam("CounterType");
 
         if (sa.usesTargeting()) {
@@ -91,14 +59,14 @@ public class CountersRemoveAi extends SpellAbilityAi {
         if (!type.matches("Any") && !type.matches("All")) {
             final int currCounters = sa.getHostCard().getCounters(CounterType.getType(type));
             if (currCounters < 1) {
-                return false;
+                return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
             }
         }
 
         return super.checkApiLogic(ai, sa);
     }
 
-    private boolean doTgt(Player ai, SpellAbility sa, boolean mandatory) {
+    private AiAbilityDecision doTgt(Player ai, SpellAbility sa, boolean mandatory) {
         final Card source = sa.getHostCard();
         final Game game = ai.getGame();
 
@@ -111,19 +79,14 @@ public class CountersRemoveAi extends SpellAbilityAi {
         CardCollection list = CardLists.getTargetableCards(game.getCardsIn(tgt.getZone()), sa);
 
         if (list.isEmpty()) {
-            return false;
+            return new AiAbilityDecision(0, AiPlayDecision.TargetingFailed);
         }
 
         // Filter AI-specific targets if provided
         list = ComputerUtil.filterAITgts(sa, ai, list, false);
 
         CardCollectionView marit = ai.getCardsIn(ZoneType.Battlefield, "Marit Lage");
-        boolean maritEmpty = marit.isEmpty() || Iterables.contains(marit, new Predicate<Card>() {
-            @Override
-            public boolean apply(Card input) {
-                return input.ignoreLegendRule();
-            }
-        });
+        boolean maritEmpty = marit.isEmpty() || Iterables.contains(marit, (Predicate<Card>) Card::ignoreLegendRule);
 
         if (type.matches("All")) {
             // Logic Part for Vampire Hexmage
@@ -134,7 +97,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
                         CardPredicates.hasCounter(CounterEnumType.ICE, 3));
                 if (!depthsList.isEmpty()) {
                     sa.getTargets().add(depthsList.getFirst());
-                    return true;
+                    return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                 }
             }
 
@@ -142,12 +105,12 @@ public class CountersRemoveAi extends SpellAbilityAi {
             list = ai.getOpponents().getCardsIn(ZoneType.Battlefield);
             list = CardLists.filter(list, CardPredicates.isTargetableBy(sa));
 
-            CardCollection planeswalkerList = CardLists.filter(list, CardPredicates.Presets.PLANESWALKERS,
+            CardCollection planeswalkerList = CardLists.filter(list, CardPredicates.PLANESWALKERS,
                     CardPredicates.hasCounter(CounterEnumType.LOYALTY, 5));
 
             if (!planeswalkerList.isEmpty()) {
                 sa.getTargets().add(ComputerUtilCard.getBestPlaneswalkerAI(planeswalkerList));
-                return true;
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
             }
         } else if (type.matches("Any")) {
             // variable amount for Hex Parasite
@@ -157,7 +120,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
                 final int manaLeft = ComputerUtilCost.getMaxXValue(sa, ai, sa.isTrigger());
 
                 if (manaLeft == 0) {
-                    return false;
+                    return new AiAbilityDecision(0, AiPlayDecision.CantAffordX);
                 }
                 amount = manaLeft;
                 xPay = true;
@@ -179,7 +142,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
                         if (xPay) {
                             sa.setXManaCostPaid(ice);
                         }
-                        return true;
+                        return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                     }
                 }
             }
@@ -189,7 +152,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
             list = CardLists.filter(list, CardPredicates.isTargetableBy(sa));
 
             CardCollection planeswalkerList = CardLists.filter(list,
-                    Predicates.and(CardPredicates.Presets.PLANESWALKERS, CardPredicates.isControlledByAnyOf(ai.getOpponents())),
+                    CardPredicates.PLANESWALKERS.and(CardPredicates.isControlledByAnyOf(ai.getOpponents())),
                     CardPredicates.hasLessCounter(CounterEnumType.LOYALTY, amount));
 
             if (!planeswalkerList.isEmpty()) {
@@ -198,7 +161,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
                 if (xPay) {
                     sa.setXManaCostPaid(best.getCurrentLoyalty());
                 }
-                return true;
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
             }
 
             // some rules only for amount = 1
@@ -215,7 +178,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
 
                 if (!aiM1M1List.isEmpty()) {
                     sa.getTargets().add(ComputerUtilCard.getBestCreatureAI(aiM1M1List));
-                    return true;
+                    return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                 }
 
                 // do as P1P1 part
@@ -224,16 +187,18 @@ public class CountersRemoveAi extends SpellAbilityAi {
 
                 if (!aiUndyingList.isEmpty()) {
                     sa.getTargets().add(ComputerUtilCard.getBestCreatureAI(aiUndyingList));
-                    return true;
+                    return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                 }
+  
+                // TODO stun counters with canRemoveCounters check
 
                 // remove P1P1 counters from opposing creatures
                 CardCollection oppP1P1List = CardLists.filter(list,
-                        Predicates.and(CardPredicates.Presets.CREATURES, CardPredicates.isControlledByAnyOf(ai.getOpponents())),
+                        CardPredicates.CREATURES.and(CardPredicates.isControlledByAnyOf(ai.getOpponents())),
                         CardPredicates.hasCounter(CounterEnumType.P1P1));
                 if (!oppP1P1List.isEmpty()) {
                     sa.getTargets().add(ComputerUtilCard.getBestCreatureAI(oppP1P1List));
-                    return true;
+                    return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                 }
 
                 // fallback to remove any counter from opponent
@@ -245,7 +210,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
                     for (final CounterType aType : best.getCounters().keySet()) {
                         if (!ComputerUtil.isNegativeCounter(aType, best)) {
                             sa.getTargets().add(best);
-                            return true;
+                            return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                         }
                     }
                 }
@@ -266,7 +231,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
 
             if (!aiList.isEmpty()) {
                 sa.getTargets().add(ComputerUtilCard.getBestCreatureAI(aiList));
-                return true;
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
             }
         } else if (type.equals("P1P1")) {
             // no special amount for that one yet
@@ -284,7 +249,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
                 }
                 if (!aiList.isEmpty()) {
                     sa.getTargets().add(ComputerUtilCard.getBestCreatureAI(aiList));
-                    return true;
+                    return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                 }
             }
 
@@ -298,7 +263,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
 
                 if (!oppList.isEmpty()) {
                     sa.getTargets().add(ComputerUtilCard.getWorstCreatureAI(oppList));
-                    return true;
+                    return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                 }
             }
         } else if (type.equals("TIME")) {
@@ -309,7 +274,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
                 final int manaLeft = ComputerUtilCost.getMaxXValue(sa, ai, sa.isTrigger());
 
                 if (manaLeft == 0) {
-                    return false;
+                    return new AiAbilityDecision(0, AiPlayDecision.CantAffordX);
                 }
                 amount = manaLeft;
                 xPay = true;
@@ -327,7 +292,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
                 if (xPay) {
                     sa.setXManaCostPaid(timeCount);
                 }
-                return true;
+                return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
             }
         }
         if (mandatory) {
@@ -336,7 +301,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
                 CardCollection adaptCreats = CardLists.filter(list, CardPredicates.hasKeyword(Keyword.ADAPT));
                 if (!adaptCreats.isEmpty()) {
                     sa.getTargets().add(ComputerUtilCard.getWorstAI(adaptCreats));
-                    return true;
+                    return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                 }
 
                 // Outlast nice target
@@ -347,26 +312,27 @@ public class CountersRemoveAi extends SpellAbilityAi {
 
                     if (!betterTargets.isEmpty()) {
                         sa.getTargets().add(ComputerUtilCard.getWorstAI(betterTargets));
-                        return true;
+                        return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                     }
 
                     sa.getTargets().add(ComputerUtilCard.getWorstAI(outlastCreats));
-                    return true;
+                    return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                 }
             }
 
             sa.getTargets().add(ComputerUtilCard.getWorstAI(list));
-            return true;
+            return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
         }
-        return false;
+        return new AiAbilityDecision(0, AiPlayDecision.TargetingFailed);
     }
 
     @Override
-    protected boolean doTriggerAINoCost(Player aiPlayer, SpellAbility sa, boolean mandatory) {
+    protected AiAbilityDecision doTriggerNoCost(Player aiPlayer, SpellAbility sa, boolean mandatory) {
         if (sa.usesTargeting()) {
             return doTgt(aiPlayer, sa, mandatory);
         }
-        return mandatory;
+        return mandatory ? new AiAbilityDecision(100, AiPlayDecision.MandatoryPlay)
+                         : new AiAbilityDecision(0, AiPlayDecision.CantPlaySa);
     }
 
     /*
@@ -380,8 +346,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
         GameEntity target = (GameEntity) params.get("Target");
         CounterType type = (CounterType) params.get("CounterType");
 
-        if (target instanceof Card) {
-            Card targetCard = (Card) target;
+        if (target instanceof Card targetCard) {
             if (targetCard.getController().isOpponentOf(player)) {
                 return !ComputerUtil.isNegativeCounter(type, targetCard) ? max : min;
             } else {
@@ -392,8 +357,7 @@ public class CountersRemoveAi extends SpellAbilityAi {
 
                 return ComputerUtil.isNegativeCounter(type, targetCard) ? max : min;
             }
-        } else if (target instanceof Player) {
-            Player targetPlayer = (Player) target;
+        } else if (target instanceof Player targetPlayer) {
             if (targetPlayer.isOpponentOf(player)) {
                 return !type.is(CounterEnumType.POISON) ? max : min;
             } else {

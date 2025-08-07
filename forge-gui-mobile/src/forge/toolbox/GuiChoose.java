@@ -3,15 +3,13 @@ package forge.toolbox;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.Function;
 
+import com.google.common.collect.Iterables;
 import forge.Forge;
 import org.apache.commons.lang3.StringUtils;
-
-import com.google.common.base.Function;
-import com.google.common.collect.Iterables;
 
 import forge.game.card.CardView;
 import forge.util.Callback;
@@ -153,7 +151,7 @@ public class GuiChoose {
 
         final Integer[] choices = new Integer[count];
         for (int i = 0; i < count; i++) {
-            choices[i] = Integer.valueOf(i + min);
+            choices[i] = i + min;
         }
         oneOrNone(message, choices, callback);
     }
@@ -170,7 +168,7 @@ public class GuiChoose {
 
         List<Object> choices = new ArrayList<>();
         for (int i = min; i <= cutoff; i++) {
-            choices.add(Integer.valueOf(i));
+            choices.add(i);
         }
         choices.add(Forge.getLocalizer().getMessage("lblOther") + "...");
 
@@ -210,7 +208,7 @@ public class GuiChoose {
                     return;
                 }
                 if (StringUtils.isNumeric(result)) {
-                    Integer val = Integer.valueOf(result);
+                    int val = Integer.parseInt(result);
                     if (val >= min && val <= max) {
                         callback.run(val);
                         return;
@@ -232,7 +230,7 @@ public class GuiChoose {
         getChoices(message, min, max, choices, null, null, callback);
     }
 
-    public static <T> void getChoices(final String message, final int min, final int max, final Collection<T> choices, final T selected, final Function<T, String> display, final Callback<List<T>> callback) {
+    public static <T> void getChoices(final String message, final int min, final int max, final Collection<T> choices, final Collection<T> selected, final Function<T, String> display, final Callback<List<T>> callback) {
         if (choices == null || choices.isEmpty()) {
             if (min == 0) {
                 callback.run(new ArrayList<>());
@@ -340,7 +338,7 @@ public class GuiChoose {
     // If comparer is NULL, T has to be comparable. Otherwise you'll get an exception from inside the Arrays.sort() routine
     public static <T> void sortedGetChoices(final String message, final int min, final int max, final List<T> choices, Comparator<T> comparer, final Callback<List<T>> callback) {
         // You may create a copy of source list if callers expect the collection to be unchanged
-        Collections.sort(choices, comparer);
+        choices.sort(comparer);
         getChoices(message, min, max, choices, callback);
     }
 }

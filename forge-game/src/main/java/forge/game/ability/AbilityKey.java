@@ -2,7 +2,9 @@ package forge.game.ability;
 
 import forge.game.GameEntity;
 import forge.game.card.Card;
+import forge.game.card.CardZoneTable;
 import forge.game.player.Player;
+import forge.game.spellability.SpellAbility;
 
 import java.util.EnumMap;
 import java.util.Map;
@@ -28,6 +30,7 @@ public enum AbilityKey {
     Blockers("Blockers"),
     CanReveal("CanReveal"),
     Card("Card"),
+    CardState("CardState"),
     Cards("Cards"),
     CardsFiltered("CardsFiltered"),
     CardLKI("CardLKI"),
@@ -35,12 +38,12 @@ public enum AbilityKey {
     Causer("Causer"),
     Championed("Championed"),
     ClassLevel("ClassLevel"),
-    Cost("Cost"),
     CostStack("CostStack"),
     CounterAmount("CounterAmount"),
     CounteredSA("CounteredSA"),
     CounterNum("CounterNum"),
     CounterMap("CounterMap"),
+    CounterTable("CounterTable"),
     CounterType("CounterType"),
     Crew("Crew"),
     CumulativeUpkeepPaid("CumulativeUpkeepPaid"),
@@ -58,14 +61,17 @@ public enum AbilityKey {
     DefendingPlayer("DefendingPlayer"),
     Destination("Destination"),
     Devoured("Devoured"),
+    DicePTExchanges("DicePTExchanges"),
+    Discard("Discard"),
+    DiscardedBefore("DiscardedBefore"),
     DividedShieldAmount("DividedShieldAmount"),
     EchoPaid("EchoPaid"),
     EffectOnly("EffectOnly"),
     Enlisted("Enlisted"),
     Exploited("Exploited"),
+    Explored("Explored"),
     Explorer("Explorer"),
     ExtraTurn("ExtraTurn"),
-    Event("Event"),
     ETB("ETB"),
     Fighter("Fighter"),
     Fighters("Fighters"),
@@ -73,26 +79,26 @@ public enum AbilityKey {
     Fizzle("Fizzle"),
     FoundSearchingLibrary("FoundSearchingLibrary"),
     Ignore("Ignore"),
+    IgnoreChosen("IgnoreChosen"),
     IsCombat("IsCombat"), // TODO confirm that this and IsCombatDamage can be merged
     IsCombatDamage("IsCombatDamage"),
     IsDamage("IsDamage"),
     IndividualCostPaymentInstance("IndividualCostPaymentInstance"),
-    IsMadness("IsMadness"),
     LastStateBattlefield("LastStateBattlefield"),
     LastStateGraveyard("LastStateGraveyard"),
     LifeAmount("LifeAmount"), //TODO confirm that this and LifeGained can be merged
     LifeGained("LifeGained"),
+    LoseReason("LoseReason"),
     Map("Map"),
     Mana("Mana"),
     MergedCards("MergedCards"),
     Mode("Mode"),
-    Modifier("Modifier"),
     MonstrosityAmount("MonstrosityAmount"),
+    NaturalResult("NaturalResult"),
     NewCard("NewCard"),
     NewCounterAmount("NewCounterAmount"),
     NoPreventDamage("NoPreventDamage"),
-    Num("Num"), // TODO confirm that this and NumThisTurn can be merged
-    NumThisTurn("NumThisTurn"),
+    Num("Num"),
     Number("Number"),
     Object("Object"),
     Objects("Objects"),
@@ -113,6 +119,7 @@ public enum AbilityKey {
     ReplacementResult("ReplacementResult"),
     ReplacementResultMap("ReplacementResultMap"),
     Result("Result"),
+    RolledToVisitAttractions("RolledToVisitAttractions"),
     RoomName("RoomName"),
     Scheme("Scheme"),
     ScryBottom("ScryBottom"),
@@ -122,20 +129,19 @@ public enum AbilityKey {
     Sources("Sources"),
     SourceSA("SourceSA"),
     SpellAbility("SpellAbility"),
-    SpellAbilityStackInstance("SpellAbilityStackInstance"),
     SpellAbilityTargets("SpellAbilityTargets"),
-    StackInstance("StackInstance"),
     StackSa("StackSa"),
-    StackSi("StackSi"),
     SurveilNum("SurveilNum"),
     Target("Target"),
     Targets("Targets"),
-    TgtSA("TgtSA"),
     Token("Token"),
     TokenNum("TokenNum"),
-    Vehicle("Vehicle"),
-    Won("Won");
+    Valiant("Valiant"),
+    Won("Won"),
 
+    // below shared across different Replacements, don't reuse
+    InternalTriggerTable("InternalTriggerTable"),
+    SimultaneousETB("SimultaneousETB"); // for CR 614.13c
 
     private String key;
 
@@ -199,5 +205,16 @@ public enum AbilityKey {
 
         runParams.put(Map, map);
         return runParams;
+    }
+
+    public static CardZoneTable addCardZoneTableParams(Map<AbilityKey, Object> params, SpellAbility sa) {
+        CardZoneTable table = CardZoneTable.getSimultaneousInstance(sa);
+        addCardZoneTableParams(params, table);
+        return table;
+    }
+    public static void addCardZoneTableParams(Map<AbilityKey, Object> params, CardZoneTable table) {
+        params.put(AbilityKey.LastStateBattlefield, table.getLastStateBattlefield());
+        params.put(AbilityKey.LastStateGraveyard, table.getLastStateGraveyard());
+        params.put(AbilityKey.InternalTriggerTable, table);
     }
 }

@@ -2,10 +2,7 @@ package forge.game.trigger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.TreeBasedTable;
 
@@ -14,12 +11,14 @@ import forge.game.Game;
 import forge.game.GameEntityCounterTable;
 import forge.game.ability.AbilityKey;
 import forge.game.ability.ApiType;
+import forge.game.ability.SpellAbilityEffect;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
 import forge.game.card.CardDamageMap;
 import forge.game.card.CardState;
 import forge.game.card.CardZoneTable;
 import forge.game.cost.Cost;
+import forge.game.keyword.Keyword;
 import forge.game.player.Player;
 import forge.game.spellability.Ability;
 import forge.game.spellability.AbilitySub;
@@ -37,44 +36,8 @@ import forge.game.spellability.TargetRestrictions;
 // use of any of the methods)
 public class WrappedAbility extends Ability {
 
-    static Set<ApiType> noTimestampCheck = ImmutableSet.of(
-            ApiType.Abandon, // no Triggered
-            ApiType.AddPhase, // only player
-            ApiType.AddTurn, // only player
-
-            ApiType.Amass, // no Triggered only you
-            ApiType.Ascend, // only player (you)
-
-            ApiType.BecomeMonarch, // only player
-            ApiType.Bond, // updated
-
-            ApiType.PutCounter,
-            ApiType.MoveCounter,
-            ApiType.MultiplyCounter,
-            ApiType.MoveCounter,
-            ApiType.RemoveCounter,
-            ApiType.AddOrRemoveCounter,
-            ApiType.MoveCounter,
-            ApiType.Draw,
-            ApiType.GainLife,
-            ApiType.LoseLife,
-            ApiType.ChangeZone,
-            ApiType.Destroy,
-            ApiType.Token,
-            ApiType.SetState,
-            ApiType.Play,
-            ApiType.SacrificeAll,
-            ApiType.Pump,
-
-            ApiType.Regenerate, // Updated
-            ApiType.RegenerateAll, // No Triggered
-            ApiType.Regeneration, // Replacement Effect only
-
-            ApiType.DelayedTrigger
-            );
-
     private final SpellAbility sa;
-    private final Player decider;
+    private Player decider;
 
     boolean mandatory = false;
 
@@ -222,7 +185,7 @@ public class WrappedAbility extends Ability {
     // a real solution would include only the triggering information that actually is used, but that's a major change
     @Override
     public String toUnsuppressedString() {
-        String desc = this.getStackDescription(); /* use augmented stack description as string for wrapped things */
+        String desc = this.getStackDescription(false); /* use augmented stack description as string for wrapped things */
         String card = getHostCard().toString();
         if (!desc.contains(card) && desc.contains(" this ")) { /* a hack for Evolve and similar that don't have CARDNAME */
                 return card + ": " + desc;
@@ -231,15 +194,23 @@ public class WrappedAbility extends Ability {
 
     @Override
     public String getStackDescription() {
+        return getStackDescription(true);
+    }
+
+    public String getStackDescription(boolean withTargets) {
         final Trigger regtrig = getTrigger();
         if (regtrig == null) return "";
         final StringBuilder sb =
                 new StringBuilder(regtrig.replaceAbilityText(regtrig.toString(true), this, true));
-        List<TargetChoices> allTargets = sa.getAllTargetChoices();
-        if (!allTargets.isEmpty() && !ApiType.Charm.equals(sa.getApi())) {
-            sb.append(" (Targeting: ");
-            sb.append(allTargets);
-            sb.append(")");
+
+        // prevent text growing too long when SA target other in a chain and also potential StackOverflow
+        if (withTargets) {
+            List<TargetChoices> allTargets = sa.getAllTargetChoices();
+            if (!allTargets.isEmpty() && !ApiType.Charm.equals(sa.getApi())) {
+                sb.append(" (Targeting: ");
+                sb.append(allTargets);
+                sb.append(")");
+            }
         }
 
         String important = regtrig.getImportantStackObjects(this);
@@ -286,8 +257,8 @@ public class WrappedAbility extends Ability {
     }
 
     @Override
-    public boolean isBuyBackAbility() {
-        return sa.isBuyBackAbility();
+    public boolean isBuyback() {
+        return sa.isBuyback();
     }
 
     @Override
@@ -306,27 +277,18 @@ public class WrappedAbility extends Ability {
     }
 
     @Override
-    public void setChapter(int val) {
-        sa.setChapter(val);
-    }
-
-    @Override
-    public boolean isLastChapter() {
-        return sa.isLastChapter();
-    }
-    @Override
-    public boolean setLastChapter(boolean value) {
-        return sa.setLastChapter(value);
-    }
-
-    @Override
-    public boolean isFlashBackAbility() {
-        return sa.isFlashBackAbility();
+    public boolean isFlashback() {
+        return sa.isFlashback();
     }
 
     @Override
     public boolean isSpell() {
         return sa.isSpell();
+    }
+
+    @Override
+    public boolean hasSVar(String name) {
+        return sa.hasSVar(name);
     }
 
     @Override
@@ -337,6 +299,11 @@ public class WrappedAbility extends Ability {
     @Override
     public Integer getSVarInt(String name) {
         return sa.getSVarInt(name);
+    }
+
+    @Override
+    public void setSVar(final String name, final String value) {
+        sa.setSVar(name, value);
     }
 
     @Override
@@ -358,10 +325,6 @@ public class WrappedAbility extends Ability {
     public void setActivatingPlayer(final Player player) {
         sa.setActivatingPlayer(player);
     }
-    @Override
-    public boolean setActivatingPlayer(final Player player, final boolean lki) {
-        return sa.setActivatingPlayer(player, lki);
-    }
 
     @Override
     public String getDescription() {
@@ -370,15 +333,6 @@ public class WrappedAbility extends Ability {
     @Override
     public void setDescription(final String s) {
         sa.setDescription(s);
-    }
-
-    @Override
-    public ManaCost getMultiKickerManaCost() {
-        return sa.getMultiKickerManaCost();
-    }
-    @Override
-    public void setMultiKickerManaCost(final ManaCost cost) {
-        sa.setMultiKickerManaCost(cost);
     }
 
     @Override
@@ -408,11 +362,6 @@ public class WrappedAbility extends Ability {
     @Override
     public void setTargetCard(final Card card) {
         sa.setTargetCard(card);
-    }
-
-    @Override
-    public void setSourceTrigger(final int id) {
-        sa.setSourceTrigger(id);
     }
 
     @Override
@@ -465,7 +414,7 @@ public class WrappedAbility extends Ability {
     // //////////////////////////////////////
     @Override
     public void resolve() {
-        final Game game = sa.getActivatingPlayer().getGame();
+        final Game game = getActivatingPlayer().getGame();
         final Trigger regtrig = getTrigger();
 
         if (!(TriggerType.Always.equals(regtrig.getMode())) && !regtrig.hasParam("NoResolvingCheck")) {
@@ -480,6 +429,10 @@ public class WrappedAbility extends Ability {
             }
         }
 
+        if (!regtrig.checkResolvedLimit(getActivatingPlayer())) {
+            return;
+        }
+
         if (regtrig.hasParam("ResolvingCheck")) {
             // rare cases: Hidden Predators (state trigger, but have "Intervening If" to check IsPresent2) etc.
             Map<String, String> recheck = Maps.newHashMap();
@@ -490,39 +443,16 @@ public class WrappedAbility extends Ability {
             }
         }
 
-        if (decider != null && !decider.getController().confirmTrigger(this)) {
-            return;
-        }
-
-        if (!regtrig.hasParam("NoTimestampCheck")) {
-            timestampCheck();
+        if (decider != null) {
+            if (!decider.isInGame()) {
+                decider = SpellAbilityEffect.getNewChooser(sa, decider);
+            }
+            if (!decider.getController().confirmTrigger(this)) {
+                return;
+            }
         }
 
         getActivatingPlayer().getController().playSpellAbilityNoStack(sa, false);
-    }
-
-    /**
-     * TODO remove this function after the Effects are updated
-     */
-    protected void timestampCheck() {
-        final Game game = sa.getActivatingPlayer().getGame();
-
-        if (noTimestampCheck.contains(sa.getApi())) {
-            return;
-        }
-
-        final Map<AbilityKey, Object> triggerMap = AbilityKey.newMap(sa.getTriggeringObjects());
-        for (Entry<AbilityKey, Object> ev : triggerMap.entrySet()) {
-            if (ev.getValue() instanceof Card) {
-                Card card = (Card) ev.getValue();
-                Card current = game.getCardState(card);
-                if (card.isInPlay() && current.isInPlay() && current.getTimestamp() != card.getTimestamp()) {
-                    // TODO: figure out if NoTimestampCheck should be the default for ChangesZone triggers
-                    sa.getTriggeringObjects().remove(ev.getKey());
-                }
-            }
-        }
-        // TODO: CardCollection
     }
 
     @Override
@@ -593,5 +523,9 @@ public class WrappedAbility extends Ability {
 
     public boolean isIntrinsic() {
         return sa.isIntrinsic();
+    }
+
+    public boolean isKeyword(Keyword kw) {
+        return sa.isKeyword(kw);
     }
 }

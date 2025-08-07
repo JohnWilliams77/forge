@@ -11,12 +11,10 @@ import forge.game.zone.ZoneType;
  */
 public class StaticAbilityNumLoyaltyAct {
 
-    static String MODE = "NumLoyaltyAct";
-
     public static boolean limitIncrease(final Card card) {
         for (final Card ca : card.getGame().getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
-                if (!stAb.checkConditions(MODE)) {
+                if (!stAb.checkConditions(StaticAbilityMode.NumLoyaltyAct)) {
                     continue;
                 }
 
@@ -44,7 +42,7 @@ public class StaticAbilityNumLoyaltyAct {
         int addl = 0;
         for (final Card ca : card.getGame().getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
-                if (!stAb.checkConditions(MODE)) {
+                if (!stAb.checkConditions(StaticAbilityMode.NumLoyaltyAct)) {
                     continue;
                 }
                 if (!stAb.matchesValidParam("ValidCard", card)) {
@@ -52,12 +50,11 @@ public class StaticAbilityNumLoyaltyAct {
                 }
                 if (stAb.hasParam("Additional")) {
                     if (stAb.hasParam("OnlySourceAbs")) {
-                        if (!stAb.getHostCard().getEffectSourceAbility().getRootAbility().equals(sa)) {
+                        if (!stAb.getHostCard().getEffectSourceAbility().getRootAbility().getOriginalAbility().equals(sa)) {
                             continue;
                         }
                     }
-                    int more = AbilityUtils.calculateAmount(card, stAb.getParam("Additional"), stAb);
-                    addl += more;
+                    addl += AbilityUtils.calculateAmount(card, stAb.getParam("Additional"), stAb);
                 }
             }
         }

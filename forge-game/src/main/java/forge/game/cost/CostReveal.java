@@ -17,18 +17,14 @@
  */
 package forge.game.cost;
 
-import java.util.Arrays;
-import java.util.List;
-
 import forge.game.GameLogEntryType;
-import forge.game.card.Card;
-import forge.game.card.CardCollection;
-import forge.game.card.CardCollectionView;
-import forge.game.card.CardLists;
-import forge.game.card.CardPredicates;
+import forge.game.card.*;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
+
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * The Class CostReveal.
@@ -71,7 +67,7 @@ public class CostReveal extends CostPartWithList {
             modifiedHand.remove(source); // can't pay for itself
             handList = modifiedHand;
         }
-        handList = CardLists.getValidCards(handList, getType(), payer, source, ability);
+        handList = CardLists.getValidCards(handList, getType().split(";"), payer, source, ability);
 
         return handList.size();
     }
@@ -100,7 +96,7 @@ public class CostReveal extends CostPartWithList {
     }
 
     @Override
-    public final String toString() {
+    public String toString() {
         final StringBuilder sb = new StringBuilder();
         sb.append("Reveal ");
 
@@ -140,8 +136,8 @@ public class CostReveal extends CostPartWithList {
     }
 
     @Override
-    protected Card doPayment(SpellAbility ability, Card targetCard, final boolean effect) {
-        targetCard.getGame().getAction().reveal(new CardCollection(targetCard), ability.getActivatingPlayer());
+    protected Card doPayment(Player payer, SpellAbility ability, Card targetCard, final boolean effect) {
+        targetCard.getGame().getAction().reveal(new CardCollection(targetCard), payer);
         StringBuilder sb = new StringBuilder();
         sb.append(ability.getActivatingPlayer());
         if (targetCard.isInZone(ZoneType.Hand)) {
@@ -161,8 +157,8 @@ public class CostReveal extends CostPartWithList {
     }
 
     @Override
-    protected CardCollectionView doListPayment(SpellAbility ability, CardCollectionView targetCards, final boolean effect) {
-        ability.getActivatingPlayer().getGame().getAction().reveal(targetCards, ability.getActivatingPlayer());
+    protected CardCollectionView doListPayment(Player payer, SpellAbility ability, CardCollectionView targetCards, final boolean effect) {
+        ability.getActivatingPlayer().getGame().getAction().reveal(targetCards, payer);
         return targetCards;
     }
 

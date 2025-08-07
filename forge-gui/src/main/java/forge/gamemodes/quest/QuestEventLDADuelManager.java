@@ -29,7 +29,6 @@ import forge.gamemodes.quest.data.QuestPreferences;
 import forge.gamemodes.quest.data.QuestPreferences.DifficultyPrefs;
 import forge.gamemodes.quest.data.QuestPreferences.QPref;
 import forge.model.FModel;
-import forge.util.CollectionSuppliers;
 import forge.util.MyRandom;
 import forge.util.maps.EnumMapOfLists;
 import forge.util.maps.MapOfLists;
@@ -43,7 +42,7 @@ import forge.util.maps.MapOfLists;
 public class QuestEventLDADuelManager implements QuestEventDuelManagerInterface {
 
     private List<Archetype> archetypes;
-    private final MapOfLists<QuestEventDifficulty, QuestEventDuel> sortedDuels = new EnumMapOfLists<>(QuestEventDifficulty.class, CollectionSuppliers.arrayLists());
+    private final MapOfLists<QuestEventDifficulty, QuestEventDuel> sortedDuels = new EnumMapOfLists<>(QuestEventDifficulty.class, ArrayList::new);
     private GameFormat baseFormat;
 
     public QuestEventLDADuelManager(GameFormat baseFormat){
@@ -68,11 +67,11 @@ public class QuestEventLDADuelManager implements QuestEventDuelManagerInterface 
             duel.setTitle(archetype.getName());
             duel.setOpponentName(archetype.getName());
             QuestEventDifficulty diff = QuestEventDifficulty.EASY;
-            if(i <= Float.valueOf(archetypes.size())*.1){
+            if(i <= ((float) archetypes.size()) * 0.1){
                 diff = QuestEventDifficulty.EXPERT;
-            }else if(i <= Float.valueOf(archetypes.size())*.4){
+            }else if(i <= ((float) archetypes.size()) * 0.4){
                 diff = QuestEventDifficulty.HARD;
-            }else if(i <= Float.valueOf(archetypes.size())*.7) {
+            }else if(i <= ((float) archetypes.size()) * 0.7) {
                 diff = QuestEventDifficulty.MEDIUM;
             }
             duel.setDifficulty(diff);

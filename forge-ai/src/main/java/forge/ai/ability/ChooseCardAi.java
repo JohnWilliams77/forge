@@ -1,35 +1,23 @@
 package forge.ai.ability;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
-
-import forge.ai.AiAttackController;
-import forge.ai.ComputerUtilAbility;
-import forge.ai.ComputerUtilCard;
-import forge.ai.ComputerUtilCombat;
-import forge.ai.SpellAbilityAi;
+import com.google.common.collect.Lists;
+import forge.ai.*;
 import forge.game.Game;
-import forge.game.card.Card;
-import forge.game.card.CardCollection;
-import forge.game.card.CardCollectionView;
-import forge.game.card.CardLists;
-import forge.game.card.CardPredicates;
-import forge.game.card.CardPredicates.Presets;
-import forge.game.card.CounterEnumType;
+import forge.game.card.*;
 import forge.game.combat.Combat;
 import forge.game.keyword.Keyword;
-import forge.game.phase.PhaseHandler;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
 import forge.game.player.PlayerPredicates;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
 import forge.util.Aggregates;
+import forge.util.IterableUtil;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 public class ChooseCardAi extends SpellAbilityAi {
 
@@ -37,19 +25,19 @@ public class ChooseCardAi extends SpellAbilityAi {
      * The rest of the logic not covered by the canPlayAI template is defined here
      */
     @Override
-    protected boolean checkApiLogic(final Player ai, final SpellAbility sa) {
+    protected AiAbilityDecision checkApiLogic(final Player ai, final SpellAbility sa) {
         if (sa.usesTargeting()) {
             sa.resetTargets();
             // search targetable Opponents
             final List<Player> oppList = ai.getOpponents().filter(PlayerPredicates.isTargetableBy(sa));
 
             if (oppList.isEmpty()) {
-                return false;
+                return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
             }
 
             sa.getTargets().add(Iterables.getFirst(oppList, null));
         }
-        return true;
+        return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
     }
 
     /**
@@ -59,11 +47,15 @@ public class ChooseCardAi extends SpellAbilityAi {
     protected boolean checkAiLogic(final Player ai, final SpellAbility sa, final String aiLogic) {
         final Card host = sa.getHostCard();
         final Game game = ai.getGame();
-        ZoneType choiceZone = ZoneType.Battlefield;
+
+        List<ZoneType> choiceZone;
         if (sa.hasParam("ChoiceZone")) {
-            choiceZone = ZoneType.smartValueOf(sa.getParam("ChoiceZone"));
+            choiceZone = ZoneType.listValueOf(sa.getParam("ChoiceZone"));
+        } else {
+            choiceZone = Lists.newArrayList(ZoneType.Battlefield);
         }
         CardCollectionView choices = game.getCardsIn(choiceZone);
+
         if (sa.hasParam("Choices")) {
             choices = CardLists.getValidCards(choices, sa.getParam("Choices"), host.getController(), host, sa);
         }
@@ -85,15 +77,12 @@ public class ChooseCardAi extends SpellAbilityAi {
                 return false;
             }
             final Combat combat = game.getCombat();
-            choices = CardLists.filter(choices, new Predicate<Card>() {
-                @Override
-                public boolean apply(final Card c) {
-                    if (!combat.isAttacking(c, ai) || !combat.isUnblocked(c)) {
-                        return false;
-                    }
-                    int ref = ComputerUtilAbility.getAbilitySourceName(sa).equals("Forcefield") ? 1 : 0;
-                    return ComputerUtilCombat.damageIfUnblocked(c, ai, combat, true) > ref;
+            choices = CardLists.filter(choices, c -> {
+                if (!combat.isAttacking(c, ai) || !combat.isUnblocked(c)) {
+                    return false;
                 }
+                int ref = ComputerUtilAbility.getAbilitySourceName(sa).equals("Forcefield") ? 1 : 0;
+                return ComputerUtilCombat.damageIfUnblocked(c, ai, combat, true) > ref;
             });
             return !choices.isEmpty();
         } else if (aiLogic.equals("Ashiok")) {
@@ -133,26 +122,24 @@ public class ChooseCardAi extends SpellAbilityAi {
                 ownChoices = CardLists.filter(choices, CardPredicates.isControlledByAnyOf(ai.getAllies()));
             }
             return !ownChoices.isEmpty();
+        } else if (aiLogic.equals("GoodCreature")) {
+            for (Card choice : choices) {
+                if (choice.isCreature() && ComputerUtilCard.evaluateCreature(choice) >= 250) {
+                    return true;
+                }
+            }
+            return false;
         }
         return true;
     }
 
     @Override
-    public boolean chkAIDrawback(SpellAbility sa, Player ai) {
+    public AiAbilityDecision chkDrawback(SpellAbility sa, Player ai) {
         if (sa.hasParam("AILogic") && !checkAiLogic(ai, sa, sa.getParam("AILogic"))) {
-            return false;
+            return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
         }
+
         return checkApiLogic(ai, sa);
-    }
-
-    protected boolean checkPhaseRestrictions(Player ai, SpellAbility sa, PhaseHandler ph) {
-        String aiLogic = sa.getParamOrDefault("AILogic", "");
-
-        if (aiLogic.equals("AtOppEOT")) {
-            return ph.getNextTurn().equals(ai) && ph.is(PhaseType.END_OF_TURN);
-        }
-
-        return super.checkPhaseRestrictions(ai, sa, ph);
     }
 
     /* (non-Javadoc)
@@ -172,7 +159,7 @@ public class ChooseCardAi extends SpellAbilityAi {
             logic = logic.replace("NotSelf", "");
         }
         Card choice = null;
-        if (logic.equals("")) {
+        if (logic.isEmpty()) {
             // Base Logic is choose "best"
             choice = ComputerUtilCard.getBestAI(options);
         } else if ("WorstCard".equals(logic)) {
@@ -184,8 +171,8 @@ public class ChooseCardAi extends SpellAbilityAi {
             }
             choice = ComputerUtilCard.getBestAI(ownChoices);
         } else if (logic.equals("BestBlocker")) {
-            if (Iterables.any(options, Presets.UNTAPPED)) {
-                options = CardLists.filter(options, Presets.UNTAPPED);
+            if (IterableUtil.any(options, CardPredicates.UNTAPPED)) {
+                options = CardLists.filter(options, CardPredicates.UNTAPPED);
             }
             choice = ComputerUtilCard.getBestCreatureAI(options);
         } else if (logic.equals("Clone")) {
@@ -201,15 +188,12 @@ public class ChooseCardAi extends SpellAbilityAi {
         } else if (logic.equals("NeedsPrevention")) {
             final Game game = ai.getGame();
             final Combat combat = game.getCombat();
-            CardCollectionView better = CardLists.filter(options, new Predicate<Card>() {
-                @Override
-                public boolean apply(final Card c) {
-                    if (combat == null || !combat.isAttacking(c, ai) || !combat.isUnblocked(c)) {
-                        return false;
-                    }
-                    int ref = ComputerUtilAbility.getAbilitySourceName(sa).equals("Forcefield") ? 1 : 0;
-                    return ComputerUtilCombat.damageIfUnblocked(c, ai, combat, true) > ref;
+            CardCollectionView better = CardLists.filter(options, c -> {
+                if (combat == null || !combat.isAttacking(c, ai) || !combat.isUnblocked(c)) {
+                    return false;
                 }
+                int ref = ComputerUtilAbility.getAbilitySourceName(sa).equals("Forcefield") ? 1 : 0;
+                return ComputerUtilCombat.damageIfUnblocked(c, ai, combat, true) > ref;
             });
             if (!better.isEmpty()) {
                 choice = ComputerUtilCard.getBestAI(better);
@@ -225,7 +209,7 @@ public class ChooseCardAi extends SpellAbilityAi {
                 choice = ComputerUtilCard.getWorstAI(aiControlled);
             }
         } else if ("LowestCMCCreature".equals(logic)) {
-            CardCollection creats = CardLists.filter(options, Presets.CREATURES);
+            CardCollection creats = CardLists.filter(options, CardPredicates.CREATURES);
             creats = CardLists.filterToughness(creats, 1);
             if (creats.isEmpty()) {
                 choice = ComputerUtilCard.getWorstAI(options);
@@ -235,26 +219,23 @@ public class ChooseCardAi extends SpellAbilityAi {
                 choice = creats.get(0);
             }
         } else if ("NegativePowerFirst".equals(logic)) {
-            Card lowest = Aggregates.itemWithMin(options, CardPredicates.Accessors.fnGetNetPower);
+            Card lowest = Aggregates.itemWithMin(options, Card::getNetPower);
             if (lowest.getNetPower() <= 0) {
                 choice = lowest;
             } else {
                 choice = ComputerUtilCard.getBestCreatureAI(options);
             }
         } else if ("TangleWire".equals(logic)) {
-            CardCollectionView betterList = CardLists.filter(options, new Predicate<Card>() {
-                @Override
-                public boolean apply(final Card c) {
-                    if (c.isCreature()) {
+            CardCollectionView betterList = CardLists.filter(options, c -> {
+                if (c.isCreature()) {
+                    return false;
+                }
+                for (SpellAbility sa1 : c.getAllSpellAbilities()) {
+                    if (sa1.getPayCosts().hasTapCost()) {
                         return false;
                     }
-                    for (SpellAbility sa : c.getAllSpellAbilities()) {
-                        if (sa.getPayCosts().hasTapCost()) {
-                            return false;
-                        }
-                    }
-                    return true;
                 }
+                return true;
             });
             if (!betterList.isEmpty()) {
                 choice = betterList.get(0);
@@ -280,10 +261,10 @@ public class ChooseCardAi extends SpellAbilityAi {
                 //  – might also be good to do a separate AI for Noble Heritage
             }
         } else if (logic.equals("Phylactery")) {
-            CardCollection aiArtifacts = CardLists.filter(ai.getCardsIn(ZoneType.Battlefield), Presets.ARTIFACTS);
+            CardCollection aiArtifacts = CardLists.filter(ai.getCardsIn(ZoneType.Battlefield), CardPredicates.ARTIFACTS);
             CardCollection indestructibles = CardLists.filter(aiArtifacts, CardPredicates.hasKeyword(Keyword.INDESTRUCTIBLE));
-            CardCollection nonCreatures = CardLists.filter(aiArtifacts, Predicates.not(Presets.CREATURES));
-            CardCollection creatures = CardLists.filter(aiArtifacts, Presets.CREATURES);
+            CardCollection nonCreatures = CardLists.filter(aiArtifacts, CardPredicates.NON_CREATURES);
+            CardCollection creatures = CardLists.filter(aiArtifacts, CardPredicates.CREATURES);
             if (!indestructibles.isEmpty()) {
                 // Choose the worst (smallest) indestructible artifact so that the opponent would have to waste
                 // removal on something unpreferred

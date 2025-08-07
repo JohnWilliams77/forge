@@ -1,10 +1,10 @@
 package forge.gamemodes.match.input;
 
-import java.util.concurrent.CountDownLatch;
-
 import forge.gui.FThreads;
 import forge.gui.error.BugReporter;
 import forge.player.PlayerControllerHuman;
+
+import java.util.concurrent.CountDownLatch;
 
 public abstract class InputSyncronizedBase extends InputBase implements InputSynchronized {
     private static final long serialVersionUID = 8756177361251703052L;
@@ -35,16 +35,12 @@ public abstract class InputSyncronizedBase extends InputBase implements InputSyn
         awaitLatchRelease();
     }
 
-    protected final void stop() {
+    @Override
+    public final void stop() {
         onStop();
 
         // ensure input won't accept any user actions.
-        FThreads.invokeInEdtNowOrLater(new Runnable() {
-            @Override
-            public void run() {
-                setFinished();
-            }
-        });
+        FThreads.invokeInEdtNowOrLater(this::setFinished);
 
         // thread irrelevant
         if (getController().getInputQueue().getInput() != null) {

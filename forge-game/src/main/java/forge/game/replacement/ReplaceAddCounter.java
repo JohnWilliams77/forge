@@ -1,10 +1,9 @@
 package forge.game.replacement;
 
 import java.util.Map;
+import java.util.Optional;
 
 import org.apache.commons.lang3.ObjectUtils;
-
-import com.google.common.base.Optional;
 
 import forge.game.ability.AbilityKey;
 import forge.game.card.Card;
@@ -58,7 +57,7 @@ public class ReplaceAddCounter extends ReplacementEffect {
             return false;
         }
 
-        if (runParams.containsKey(AbilityKey.ETB) && (Boolean)runParams.get(AbilityKey.ETB) && !canReplaceETB(runParams)) {
+        if (runParams.containsKey(AbilityKey.Destination) && !canReplaceETB(runParams)) {
             return false;
         }
 
@@ -85,7 +84,7 @@ public class ReplaceAddCounter extends ReplacementEffect {
         Map<Optional<Player>, Map<CounterType, Integer>> counterMap = (Map<Optional<Player>, Map<CounterType, Integer>>) runParams.get(AbilityKey.CounterMap);
 
         for (Map.Entry<Optional<Player>, Map<CounterType, Integer>> e : counterMap.entrySet()) {
-            if (!matchesValidParam("ValidSource", e.getKey().orNull())) {
+            if (!matchesValidParam("ValidSource", e.getKey().orElse(null))) {
                 continue;
             }
             if (hasParam("ValidCounterType")) {
@@ -96,10 +95,26 @@ public class ReplaceAddCounter extends ReplacementEffect {
                 if (0 >= ObjectUtils.defaultIfNull(e.getValue().get(ct), 0)) {
                     continue;
                 }
+                return true;
             }
-            return true;
+            for (int i : e.getValue().values()) {
+                if (i > 0) {
+                    return true;
+                }
+            }
         }
 
+        return false;
+    }
+
+    @Override
+    public boolean modeCheck(ReplacementType event, Map<AbilityKey, Object> runParams) {
+        if (super.modeCheck(event, runParams)) {
+            return true;
+        }
+        if (event.equals(ReplacementType.Moved) && runParams.containsKey(AbilityKey.CounterMap)) {
+            return true;
+        }
         return false;
     }
 }

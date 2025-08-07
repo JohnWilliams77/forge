@@ -53,8 +53,8 @@ public abstract class FScreen extends FContainer {
     }
 
     public void setHeaderCaption(String headerCaption) {
-        if (header instanceof DefaultHeader) {
-            ((DefaultHeader)header).lblCaption.setText(headerCaption);
+        if (header instanceof DefaultHeader dh) {
+            dh.lblCaption.setText(headerCaption);
         }
     }
 
@@ -63,6 +63,7 @@ public abstract class FScreen extends FContainer {
     }
 
     public void onActivate() {
+        Forge.startContinuousRendering();
     }
 
     public void onSwitchAway(Callback<Boolean> canSwitchCallback) {
@@ -76,8 +77,8 @@ public abstract class FScreen extends FContainer {
     }
 
     public void showMenu() {
-        if (header instanceof MenuHeader) {
-            ((MenuHeader)header).btnMenu.trigger();
+        if (header instanceof MenuHeader mh) {
+            mh.btnMenu.trigger();
         }
         else { //just so settings screen if no menu header
             SettingsScreen.show(false);
@@ -209,12 +210,7 @@ public abstract class FScreen extends FContainer {
         protected final FLabel btnBack, lblCaption;
 
         public DefaultHeader(String headerCaption) {
-            btnBack = add(new FLabel.Builder().icon(new BackIcon(HEIGHT, HEIGHT)).pressedColor(getBtnPressedColor()).align(Align.center).command(new FEventHandler() {
-                @Override
-                public void handleEvent(FEvent e) {
-                    Forge.back();
-                }
-            }).build());
+            btnBack = add(new FLabel.Builder().icon(new BackIcon(HEIGHT, HEIGHT)).pressedColor(getBtnPressedColor()).align(Align.center).command(e -> Forge.back()).build());
             lblCaption = add(new FLabel.Builder().text(headerCaption).font(FONT).align(Align.center).build());
         }
 

@@ -15,6 +15,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import com.badlogic.gdx.utils.Align;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import forge.Forge;
 import forge.assets.ImageCache;
@@ -207,6 +208,9 @@ public class FDeckChooser extends FScreen {
         case Constructed:
             break; //delay initialize for constructed until saved decks can be reloaded
         case Commander:
+        case CommanderGauntlet:
+            initialize(null, DeckType.COMMANDER_DECK);
+            break;
         case Oathbreaker:
         case TinyLeaders:
         case Brawl:
@@ -531,7 +535,7 @@ public class FDeckChooser extends FScreen {
         }
         needRefreshOnActivate = true;
         /*preload deck to cache*/
-        ImageCache.preloadCache(deck.getDeck());
+        ImageCache.getInstance().preloadCache(deck.getDeck());
         Forge.openScreen(new FDeckEditor(editorType, deck, true));
     }
 
@@ -571,6 +575,11 @@ public class FDeckChooser extends FScreen {
                 cmbDeckTypes.addItem(DeckType.NET_ARCHIVE_LEGACY_DECK);
                 cmbDeckTypes.addItem(DeckType.NET_ARCHIVE_VINTAGE_DECK);
                 cmbDeckTypes.addItem(DeckType.NET_ARCHIVE_BLOCK_DECK);
+
+                break;
+            case CommanderGauntlet:
+                cmbDeckTypes.addItem(DeckType.COMMANDER_DECK);
+                cmbDeckTypes.addItem(DeckType.PRECON_COMMANDER_DECK);
 
                 break;
             case Commander:
@@ -1416,7 +1425,7 @@ public class FDeckChooser extends FScreen {
             @Override
             public void run(final Integer numOpponents) {
                 if (numOpponents == null) { return; }
-                List<DeckType> deckTypes = Arrays.asList(
+                List<DeckType> deckTypes = Lists.newArrayList(
                         DeckType.CUSTOM_DECK,
                         DeckType.PRECONSTRUCTED_DECK,
                         DeckType.QUEST_OPPONENT_DECK,

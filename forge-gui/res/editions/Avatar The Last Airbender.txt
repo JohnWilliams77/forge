@@ -1,0 +1,10 @@
+[metadata]
+Code=TLA
+Date=2025-11-21
+Name=Avatar: The Last Airbender
+Type=Expansion
+ScryfallCode=TLA
+
+[cards]
+338 R Yue, the Moon Spirit @Barbara Rosiak
+363 M Avatar Aang @Bryan Konietzko

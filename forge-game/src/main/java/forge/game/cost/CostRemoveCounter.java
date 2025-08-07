@@ -17,10 +17,8 @@
  */
 package forge.game.cost;
 
-import java.util.List;
-
 import com.google.common.collect.Lists;
-
+import forge.game.GameEntity;
 import forge.game.card.Card;
 import forge.game.card.CardLists;
 import forge.game.card.CounterEnumType;
@@ -28,6 +26,11 @@ import forge.game.card.CounterType;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
+import forge.util.Lang;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * The Class CostRemoveCounter.
@@ -40,7 +43,7 @@ public class CostRemoveCounter extends CostPart {
      */
     private static final long serialVersionUID = 1L;
     public final CounterType counter;
-    public final ZoneType zone;
+    public final List<ZoneType> zone;
     public final Boolean oneOrMore;
 
     /**
@@ -56,7 +59,7 @@ public class CostRemoveCounter extends CostPart {
      *            the description
      * @param zone the zone.
      */
-    public CostRemoveCounter(final String amount, final CounterType counter, final String type, final String description, final ZoneType zone, final boolean oneOrMore) {
+    public CostRemoveCounter(final String amount, final CounterType counter, final String type, final String description, final List<ZoneType> zone, final boolean oneOrMore) {
         super(amount, type, description);
 
         this.counter = counter;
@@ -72,23 +75,25 @@ public class CostRemoveCounter extends CostPart {
         final CounterType cntrs = this.counter;
         final Card source = ability.getHostCard();
         final String type = this.getType();
-        if (this.payCostFromSource()) {
-            return source.getCounters(cntrs);
-        } else {
-            List<Card> typeList;
-            if (type.equals("OriginalHost")) {
-                typeList = Lists.newArrayList(ability.getOriginalHost());
-            } else {
-                typeList = CardLists.getValidCards(payer.getCardsIn(this.zone), type.split(";"), payer, source, ability);
-            }
+        final boolean anyCounters = cntrs == null;
 
-            // Single Target
-            int maxcount = 0;
-            for (Card c : typeList) {
-                maxcount = Math.max(maxcount, c.getCounters(cntrs));
-            }
-            return maxcount;
+        if (this.payCostFromSource()) {
+            return anyCounters ? source.getNumAllCounters() : source.getCounters(cntrs);
         }
+
+        List<Card> typeList;
+        if (type.equals("OriginalHost")) {
+            typeList = Lists.newArrayList(ability.getOriginalHost());
+        } else {
+            typeList = CardLists.getValidCards(payer.getCardsIn(this.zone), type.split(";"), payer, source, ability);
+        }
+
+        // Single Target
+        int maxcount = 0;
+        for (Card c : typeList) {
+            maxcount = anyCounters ? Math.max(maxcount, c.getNumAllCounters()) : Math.max(maxcount, c.getCounters(cntrs));
+        }
+        return maxcount;
     }
 
     /*
@@ -99,23 +104,26 @@ public class CostRemoveCounter extends CostPart {
     @Override
     public final String toString() {
         final StringBuilder sb = new StringBuilder();
-        if (this.counter.is(CounterEnumType.LOYALTY)) {
+        final boolean anyCounter = this.counter == null;
+        final String ctrName = anyCounter ? "counters" : this.counter.getName().toLowerCase() + " counters";
+        if (this.counter != null && this.counter.is(CounterEnumType.LOYALTY) && payCostFromSource()) {
             sb.append("-").append(this.getAmount());
         } else {
             sb.append("Remove ");
             if (this.getAmount().equals("X")) {
                 if (oneOrMore) {
                     sb.append("one or more ");
+                } else if (anyCounter) {
+                    sb.append ("X ");
                 } else {
                     sb.append("any number of ");
                 }
-                sb.append(this.counter.getName().toLowerCase()).append(" counters");
+                sb.append(ctrName);
             } else if (this.getAmount().equals("All")) {
-                sb.append("all ").append(this.counter.getName().toLowerCase()).append(" counters");
+                sb.append("all ").append(ctrName);
             } else {
-                final Integer i = this.convertAmount();
-                sb.append(Cost.convertAmountTypeToWords(i, this.getAmount(),
-                        this.counter.getName().toLowerCase() + " counter"));
+                sb.append(Lang.nounWithNumeralExceptOne(this.getAmount(),
+                        anyCounter ? "counter" : this.counter.getName().toLowerCase() + " counter"));
             }
 
             sb.append(" from ");
@@ -142,30 +150,29 @@ public class CostRemoveCounter extends CostPart {
         final CounterType cntrs = this.counter;
         final Card source = ability.getHostCard();
         final String type = this.getType();
+        final boolean anyCounters = cntrs == null;
 
         final int amount;
         if (getAmount().equals("All")) {
-            amount = source.getCounters(cntrs);
-        }
-        else {
+            amount = anyCounters ? source.getNumAllCounters() : source.getCounters(cntrs);
+        } else {
             amount = getAbilityAmount(ability);
         }
         if (this.payCostFromSource()) {
-            return !source.isPhasedOut() && (source.getCounters(cntrs) - amount) >= 0;
+            return !source.isPhasedOut() && ((anyCounters ? source.getNumAllCounters() : source.getCounters(cntrs)) - amount) >= 0;
         }
-        else {
-            List<Card> typeList;
-            if (type.equals("OriginalHost")) {
-                typeList = Lists.newArrayList(ability.getOriginalHost());
-            } else {
-                typeList = CardLists.getValidCards(payer.getCardsIn(this.zone), type.split(";"), payer, source, ability);
-            }
 
-            // (default logic) remove X counters from a single permanent
-            for (Card c : typeList) {
-                if (c.getCounters(cntrs) - amount >= 0) {
-                    return true;
-                }
+        List<Card> typeList;
+        if (type.equals("OriginalHost")) {
+            typeList = Lists.newArrayList(ability.getOriginalHost());
+        } else {
+            typeList = CardLists.getValidCards(payer.getCardsIn(this.zone), type.split(";"), payer, source, ability);
+        }
+
+        // (default logic) remove X counters from a single permanent
+        for (Card c : typeList) {
+            if ((anyCounters ? c.getNumAllCounters() : c.getCounters(cntrs)) - amount >= 0) {
+                return true;
             }
         }
 
@@ -175,13 +182,14 @@ public class CostRemoveCounter extends CostPart {
     @Override
     public boolean payAsDecided(Player ai, PaymentDecision decision, SpellAbility ability, final boolean effect) {
         int removed = 0;
-        final int toRemove = decision.c;
-
-        // for this cost, the list should be only one
-        for (Card c : decision.cards) {
-            removed += toRemove;
-            c.subtractCounter(counter, toRemove);
-            c.getGame().updateLastStateForCard(c);
+        for (Map.Entry<GameEntity, Map<CounterType, Integer>> e : decision.counterTable.row(Optional.empty()).entrySet()) {
+            for (Map.Entry<CounterType, Integer> v : e.getValue().entrySet()) {
+                removed += v.getValue();
+                e.getKey().subtractCounter(v.getKey(), v.getValue(), ai);
+            }
+            if (e.getKey() instanceof Card) {
+                e.getKey().getGame().updateLastStateForCard((Card) e.getKey());
+            }
         }
 
         ability.setSVar("CostCountersRemoved", Integer.toString(removed));

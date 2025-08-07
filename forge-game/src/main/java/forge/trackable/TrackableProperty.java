@@ -2,6 +2,7 @@ package forge.trackable;
 
 
 import forge.card.CardRarity;
+import forge.card.GamePieceType;
 import forge.game.Direction;
 import forge.game.EvenOdd;
 import forge.game.GameType;
@@ -14,7 +15,6 @@ public enum TrackableProperty {
     Text(TrackableTypes.StringType),
     PreventNextDamage(TrackableTypes.IntegerType),
     AttachedCards(TrackableTypes.CardViewCollectionType),
-    AllAttachedCards(TrackableTypes.CardViewCollectionType),
     Counters(TrackableTypes.CounterMapType),
     CurrentPlane(TrackableTypes.StringType),
     PlanarPlayer(TrackableTypes.PlayerViewType),
@@ -24,7 +24,8 @@ public enum TrackableProperty {
     Controller(TrackableTypes.PlayerViewType),
     Zone(TrackableTypes.EnumType(ZoneType.class)),
 
-    IsImmutable(TrackableTypes.BooleanType),
+    GamePieceType(TrackableTypes.EnumType(GamePieceType.class)),
+
     IsEmblem(TrackableTypes.BooleanType),
     IsBoon(TrackableTypes.BooleanType),
     CanSpecialize(TrackableTypes.BooleanType),
@@ -32,10 +33,11 @@ public enum TrackableProperty {
     Flipped(TrackableTypes.BooleanType),
     Facedown(TrackableTypes.BooleanType),
     Foretold(TrackableTypes.BooleanType),
-    Manifested(TrackableTypes.BooleanType),
     Modal(TrackableTypes.BooleanType),
-    Adventure(TrackableTypes.BooleanType),
+    Secondary(TrackableTypes.BooleanType),
     DoubleFaced(TrackableTypes.BooleanType),
+    FacedownImageKey(TrackableTypes.StringType),
+    PaperFoil(TrackableTypes.BooleanType),
 
     //TODO?
     Cloner(TrackableTypes.StringType),
@@ -67,20 +69,25 @@ public enum TrackableProperty {
     ChosenColors(TrackableTypes.StringListType),
     ChosenCards(TrackableTypes.CardViewCollectionType),
     ChosenNumber(TrackableTypes.StringType),
+    StoredRolls(TrackableTypes.StringListType),
     ChosenPlayer(TrackableTypes.PlayerViewType),
+    PromisedGift(TrackableTypes.PlayerViewType),
     ProtectingPlayer(TrackableTypes.PlayerViewType),
     ChosenDirection(TrackableTypes.EnumType(Direction.class)),
     ChosenEvenOdd(TrackableTypes.EnumType(EvenOdd.class)),
     ChosenMode(TrackableTypes.StringType),
     ChosenSector(TrackableTypes.StringType),
-    Sector(TrackableTypes.StringType),
+    Sector(TrackableTypes.StringListType),
+    Sprocket(TrackableTypes.IntegerType),
+    DraftAction(TrackableTypes.StringListType),
     ClassLevel(TrackableTypes.IntegerType),
     RingLevel(TrackableTypes.IntegerType),
     CurrentRoom(TrackableTypes.StringType),
     Intensity(TrackableTypes.IntegerType),
+    OverlayText(TrackableTypes.StringType),
+    MarkerText(TrackableTypes.StringListType),
     Remembered(TrackableTypes.StringType),
-    NamedCard(TrackableTypes.StringType),
-    NamedCard2(TrackableTypes.StringType),
+    NamedCard(TrackableTypes.StringListType),
     PlayerMayLook(TrackableTypes.PlayerViewCollectionType, FreezeMode.IgnoresFreeze),
     MayPlayPlayers(TrackableTypes.PlayerViewCollectionType, FreezeMode.IgnoresFreeze),
     EntityAttachedTo(TrackableTypes.GameEntityViewType),
@@ -94,6 +101,7 @@ public enum TrackableProperty {
     NeedsTransformAnimation(TrackableTypes.BooleanType, FreezeMode.IgnoresFreeze),
     NeedsUntapAnimation(TrackableTypes.BooleanType, FreezeMode.IgnoresFreeze),
     NeedsTapAnimation(TrackableTypes.BooleanType, FreezeMode.IgnoresFreeze),
+    MarkedColors(TrackableTypes.ColorSetType),
 
     ImprintedCards(TrackableTypes.CardViewCollectionType),
     ExiledCards(TrackableTypes.CardViewCollectionType),
@@ -105,6 +113,7 @@ public enum TrackableProperty {
     AlternateState(TrackableTypes.CardStateViewType, FreezeMode.IgnoresFreeze),
     LeftSplitState(TrackableTypes.CardStateViewType, FreezeMode.IgnoresFreeze),
     RightSplitState(TrackableTypes.CardStateViewType, FreezeMode.IgnoresFreeze),
+    Room(TrackableTypes.BooleanType, FreezeMode.IgnoresFreeze),
     HiddenId(TrackableTypes.IntegerType),
     ExertedThisTurn(TrackableTypes.BooleanType),
 
@@ -119,14 +128,17 @@ public enum TrackableProperty {
     ManaCost(TrackableTypes.ManaCostType),
     SetCode(TrackableTypes.StringType),
     Rarity(TrackableTypes.EnumType(CardRarity.class)),
+    FunctionalVariant(TrackableTypes.StringType),
     OracleText(TrackableTypes.StringType),
     RulesText(TrackableTypes.StringType),
     Power(TrackableTypes.IntegerType),
     Toughness(TrackableTypes.IntegerType),
     Loyalty(TrackableTypes.StringType),
     Defense(TrackableTypes.StringType),
+    AttractionLights(TrackableTypes.IntegerSetType),
     ChangedColorWords(TrackableTypes.StringMapType),
     HasChangedColors(TrackableTypes.BooleanType),
+    HasPrintedPT(TrackableTypes.BooleanType),
     ChangedTypes(TrackableTypes.StringMapType),
 
     //check produce mana for BG
@@ -142,6 +154,7 @@ public enum TrackableProperty {
     CountBasicLandTypes(TrackableTypes.IntegerType),
 
     KeywordKey(TrackableTypes.StringType),
+    HasAnnihilator(TrackableTypes.BooleanType),
     HasDeathtouch(TrackableTypes.BooleanType),
     HasToxic(TrackableTypes.BooleanType),
     HasDevoid(TrackableTypes.BooleanType),
@@ -149,6 +162,7 @@ public enum TrackableProperty {
     HasDivideDamage(TrackableTypes.BooleanType),
     HasDoubleStrike(TrackableTypes.BooleanType),
     HasDoubleTeam(TrackableTypes.BooleanType),
+    HasExalted(TrackableTypes.BooleanType),
     HasFirstStrike(TrackableTypes.BooleanType),
     HasFlying(TrackableTypes.BooleanType),
     HasFear(TrackableTypes.BooleanType),
@@ -165,15 +179,13 @@ public enum TrackableProperty {
     HasVigilance(TrackableTypes.BooleanType),
     HasLandwalk(TrackableTypes.BooleanType),
     HasAftermath(TrackableTypes.BooleanType),
-    //protectionkey
     ProtectionKey(TrackableTypes.StringType),
-    //hexproofkey
     HexproofKey(TrackableTypes.StringType),
     HasHaste(TrackableTypes.BooleanType),
     HasInfect(TrackableTypes.BooleanType),
     HasStorm(TrackableTypes.BooleanType),
-    YouMayLook(TrackableTypes.BooleanType),
-    OpponentMayLook(TrackableTypes.BooleanType),
+    HasWard(TrackableTypes.BooleanType),
+    HasWither(TrackableTypes.BooleanType),
     BlockAdditional(TrackableTypes.IntegerType),
     BlockAny(TrackableTypes.BooleanType),
     AbilityText(TrackableTypes.StringType),
@@ -197,15 +209,18 @@ public enum TrackableProperty {
     HasUnlimitedLandPlay(TrackableTypes.BooleanType),
     NumLandThisTurn(TrackableTypes.IntegerType),
     NumManaShards(TrackableTypes.IntegerType),
+    DraftNotes(TrackableTypes.StringMapType),
     NumDrawnThisTurn(TrackableTypes.IntegerType),
     AdditionalVote(TrackableTypes.IntegerType),
     OptionalAdditionalVote(TrackableTypes.IntegerType),
     ControlVotes(TrackableTypes.BooleanType),
+    AdditionalVillainousChoices(TrackableTypes.IntegerType),
     Keywords(TrackableTypes.KeywordCollectionViewType, FreezeMode.IgnoresFreeze),
     Commander(TrackableTypes.CardViewCollectionType, FreezeMode.IgnoresFreeze),
     CommanderCast(TrackableTypes.IntegerMapType),
     CommanderDamage(TrackableTypes.IntegerMapType),
     MindSlaveMaster(TrackableTypes.PlayerViewType),
+
     Ante(TrackableTypes.CardViewCollectionType, FreezeMode.IgnoresFreeze),
     Battlefield(TrackableTypes.CardViewCollectionType, FreezeMode.IgnoresFreeze), //zones can't respect freeze, otherwise cards that die from state based effects won't have that reflected in the UI
     Command(TrackableTypes.CardViewCollectionType, FreezeMode.IgnoresFreeze),
@@ -215,7 +230,14 @@ public enum TrackableProperty {
     Hand(TrackableTypes.CardViewCollectionType, FreezeMode.IgnoresFreeze),
     Library(TrackableTypes.CardViewCollectionType, FreezeMode.IgnoresFreeze),
     Sideboard(TrackableTypes.CardViewCollectionType, FreezeMode.IgnoresFreeze),
+    PlanarDeck(TrackableTypes.CardViewCollectionType, FreezeMode.IgnoresFreeze),
+    SchemeDeck(TrackableTypes.CardViewCollectionType, FreezeMode.IgnoresFreeze),
+    AttractionDeck(TrackableTypes.CardViewCollectionType, FreezeMode.IgnoresFreeze),
+    ContraptionDeck(TrackableTypes.CardViewCollectionType, FreezeMode.IgnoresFreeze),
+    Junkyard(TrackableTypes.CardViewCollectionType, FreezeMode.IgnoresFreeze),
+
     Mana(TrackableTypes.ManaMapType, FreezeMode.IgnoresFreeze),
+
     IsExtraTurn(TrackableTypes.BooleanType),
     ExtraTurnCount(TrackableTypes.IntegerType),
     HasPriority(TrackableTypes.BooleanType, FreezeMode.IgnoresFreeze),
@@ -228,6 +250,14 @@ public enum TrackableProperty {
     Description(TrackableTypes.StringType),
     CanPlay(TrackableTypes.BooleanType),
     PromptIfOnlyPossibleAbility(TrackableTypes.BooleanType),
+
+    //ReplacementEffectView
+    RE_HostCard(TrackableTypes.CardViewType),
+    RE_Description(TrackableTypes.StringType),
+
+    //StaticAbilityView
+    ST_HostCard(TrackableTypes.CardViewType),
+    ST_Description(TrackableTypes.StringType),
 
     //HasBackSide
     BackSideName(TrackableTypes.StringType),
@@ -272,7 +302,8 @@ public enum TrackableProperty {
     GameLog(TrackableTypes.StringType),
     NeedsPhaseRedrawn(TrackableTypes.BooleanType),
     PlayerTurn(TrackableTypes.PlayerViewType, FreezeMode.IgnoresFreeze),
-    Phase(TrackableTypes.EnumType(PhaseType.class), FreezeMode.IgnoresFreeze);
+    Phase(TrackableTypes.EnumType(PhaseType.class), FreezeMode.IgnoresFreeze),
+    Dependencies(TrackableTypes.StringType);
 
     public enum FreezeMode {
         IgnoresFreeze,

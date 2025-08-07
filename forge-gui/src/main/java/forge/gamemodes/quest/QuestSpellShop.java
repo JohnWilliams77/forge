@@ -5,10 +5,9 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.function.Function;
 
 import org.apache.commons.lang3.tuple.Pair;
-
-import com.google.common.base.Function;
 
 import forge.deck.CardPool;
 import forge.deck.Deck;
@@ -134,37 +133,11 @@ public class QuestSpellShop {
         return value;
     }
 
-    public static final Function<Entry<InventoryItem, Integer>, Comparable<?>> fnPriceCompare = new Function<Entry<InventoryItem, Integer>, Comparable<?>>() {
-        @Override
-        public Comparable<?> apply(final Entry<InventoryItem, Integer> from) {
-            return getCardValue(from.getKey());
-        }
-    };
-    public static final Function<Entry<? extends InventoryItem, Integer>, Object> fnPriceGet = new Function<Entry<? extends InventoryItem, Integer>, Object>() {
-        @Override
-        public Object apply(final Entry<? extends InventoryItem, Integer> from) {
-            return getCardValue(from.getKey());
-        }
-    };
-    public static final Function<Entry<? extends InventoryItem, Integer>, Object> fnPriceSellGet = new Function<Entry<? extends InventoryItem, Integer>, Object>() {
-        @Override
-        public Object apply(final Entry<? extends InventoryItem, Integer> from) {
-            return Math.max((int) (multiplier * getCardValue(from.getKey())), 1);
-        }
-    };
-    public static final Function<Entry<InventoryItem, Integer>, Comparable<?>> fnDeckCompare = new Function<Entry<InventoryItem, Integer>, Comparable<?>>() {
-        @Override
-        public Comparable<?> apply(final Entry<InventoryItem, Integer> from) {
-            return decksUsingMyCards.count(from.getKey());
-        }
-    };
-    public static final Function<Entry<? extends InventoryItem, Integer>, Object> fnDeckGet = new Function<Entry<? extends InventoryItem, Integer>, Object>() {
-        @Override
-        public Object apply(final Entry<? extends InventoryItem, Integer> from) {
-            final Integer iValue = decksUsingMyCards.count(from.getKey());
-            return iValue.toString();
-        }
-    };
+    public static final Function<Entry<InventoryItem, Integer>, Comparable<?>> fnPriceCompare = from -> getCardValue(from.getKey());
+    public static final Function<Entry<? extends InventoryItem, Integer>, Object> fnPriceGet = from -> getCardValue(from.getKey());
+    public static final Function<Entry<? extends InventoryItem, Integer>, Object> fnPriceSellGet = from -> Math.max((int) (multiplier * getCardValue(from.getKey())), 1);
+    public static final Function<Entry<InventoryItem, Integer>, Comparable<?>> fnDeckCompare = from -> decksUsingMyCards.count(from.getKey());
+    public static final Function<Entry<? extends InventoryItem, Integer>, Object> fnDeckGet = from -> Integer.toString(decksUsingMyCards.count(from.getKey()));
 
     public static long getTotalBuyCost(Iterable<Entry<InventoryItem, Integer>> items) {
         long totalCost = 0;

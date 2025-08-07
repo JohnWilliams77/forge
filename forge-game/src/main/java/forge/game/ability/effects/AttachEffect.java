@@ -1,9 +1,9 @@
 package forge.game.ability.effects;
 
-
 import java.util.List;
 import java.util.Map;
 
+import com.google.common.collect.Iterables;
 import forge.game.Game;
 import forge.game.GameActionUtil;
 import forge.game.GameEntity;
@@ -25,20 +25,18 @@ import forge.util.Lang;
 import forge.util.Localizer;
 import forge.util.collect.FCollection;
 
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 
 public class AttachEffect extends SpellAbilityEffect {
     @Override
     public void resolve(SpellAbility sa) {
+        final Player activator = sa.getActivatingPlayer();
         final Card source = sa.getHostCard();
         final Game game = source.getGame();
 
         CardCollectionView attachments;
 
-        final Player p = sa.getActivatingPlayer();
-
-        Player chooser = p;
+        Player chooser = activator;
         if (sa.hasParam("Chooser")) {
             chooser = Iterables.getFirst(AbilityUtils.getDefinedPlayers(source, sa.getParam("Chooser"), sa), null);
         }
@@ -52,7 +50,7 @@ public class AttachEffect extends SpellAbilityEffect {
             }
             String title = sa.hasParam("ChoiceTitle") ? sa.getParam("ChoiceTitle") : Localizer.getInstance().getMessage("lblChoose") + " ";
 
-            CardCollection choices = CardLists.getValidCards(game.getCardsIn(choiceZone), sa.getParam("Choices"), p, source, sa);
+            CardCollection choices = CardLists.getValidCards(game.getCardsIn(choiceZone), sa.getParam("Choices"), activator, source, sa);
 
             Map<String, Object> params = Maps.newHashMap();
             params.put("Target", Iterables.getFirst(getDefinedEntitiesOrTargeted(sa, "Defined"), null));
@@ -92,7 +90,7 @@ public class AttachEffect extends SpellAbilityEffect {
                 }
             } else {
                 CardCollection cardChoices = CardLists.getValidCards(game.getCardsIn(choiceZone),
-                        sa.getParam("Choices"), p, source, sa);
+                        sa.getParam("Choices"), activator, source, sa);
                 // Object + Choices means Attach Aura/Equipment onto new another card it can attach
                 // if multiple attachments, all of them need to be able to attach to new card
                 for (final Card attachment : attachments) {
@@ -121,10 +119,11 @@ public class AttachEffect extends SpellAbilityEffect {
             attachTo = chooser.getController().chooseSingleEntityForEffect(targets, sa, title, params);
         }
 
-        String attachToName = null;
         if (attachTo == null) {
             return;
-        } else if (attachTo instanceof Card) {
+        }
+        String attachToName;
+        if (attachTo instanceof Card) {
             attachToName = CardTranslation.getTranslatedName(((Card)attachTo).getName());
         } else {
             attachToName = attachTo.toString();
@@ -134,8 +133,16 @@ public class AttachEffect extends SpellAbilityEffect {
 
         // If Cast Targets will be checked on the Stack
         for (final Card attachment : attachments) {
+            final Card gameCard = attachment.getGame().getCardState(attachment, null);
+            // gameCard is LKI in that case, the card is not in game anymore
+            // or the timestamp did change
+            // this should check Self too
+            if (gameCard == null || !attachment.equalsWithGameTimestamp(gameCard)) {
+                continue;
+            }
+
             String message = Localizer.getInstance().getMessage("lblDoYouWantAttachSourceToTarget", CardTranslation.getTranslatedName(attachment.getName()), attachToName);
-            if (sa.hasParam("Optional") && !p.getController().confirmAction(sa, null, message, null))
+            if (sa.hasParam("Optional") && !activator.getController().confirmAction(sa, null, message, null))
             // TODO add params for message
                 continue;
 
@@ -147,16 +154,13 @@ public class AttachEffect extends SpellAbilityEffect {
 
         if (source.isAura() && sa.isSpell()) {
             CardZoneTable table = new CardZoneTable();
-            source.setController(sa.getActivatingPlayer(), 0);
+            source.setController(activator, 0);
 
             ZoneType previousZone = source.getZone().getZoneType();
 
-            CardCollectionView lastStateBattlefield = game.copyLastStateBattlefield();
-            CardCollectionView lastStateGraveyard = game.copyLastStateGraveyard();
-
-            Map<AbilityKey, Object> moveParams = Maps.newEnumMap(AbilityKey.class);
-            moveParams.put(AbilityKey.LastStateBattlefield, lastStateBattlefield);
-            moveParams.put(AbilityKey.LastStateGraveyard, lastStateGraveyard);
+            Map<AbilityKey, Object> moveParams = AbilityKey.newMap();
+            moveParams.put(AbilityKey.LastStateBattlefield, game.copyLastStateBattlefield());
+            moveParams.put(AbilityKey.LastStateGraveyard, game.copyLastStateGraveyard());
 
             // The Spell_Permanent (Auras) version of this AF needs to
             // move the card into play before Attaching

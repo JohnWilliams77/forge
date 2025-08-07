@@ -5,8 +5,6 @@ import java.awt.Font;
 import java.awt.Point;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 
 import javax.swing.BorderFactory;
 import javax.swing.JPanel;
@@ -34,7 +32,6 @@ import forge.toolbox.FSkin;
 import forge.toolbox.FTextArea;
 import forge.util.FileUtil;
 import forge.util.Localizer;
-import forge.util.RuntimeVersion;
 import net.miginfocom.swing.MigLayout;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -83,46 +80,32 @@ public enum VSubmenuDownloaders implements IVSubmenu<CSubmenuDownloaders> {
 
         pnlContent.setOpaque(false);
 
-        if (javaRecentEnough()) {
-            // With Blacksmith we would upload the releases and the /latest would redirect to the right URL
-            // That currently doesn't happen so lets comment out this button for now
-//            pnlContent.add(btnCheckForUpdates, constraintsBTN);
-//            pnlContent.add(_makeLabel(localizer.getMessage("lblCheckForUpdates")), constraintsLBL);
+        pnlContent.add(_makeLabel("Bulk downloaders have been disabled. Please use auto-downloader for now."), constraintsLBL);
 
-            pnlContent.add(btnDownloadPics, constraintsBTN);
-            pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadPics")), constraintsLBL);
+        // Github actions now uploading the latest version predictably. So we should be able to use this again.
+        pnlContent.add(btnCheckForUpdates, constraintsBTN);
+        pnlContent.add(_makeLabel(localizer.getMessage("lblCheckForUpdates")), constraintsLBL);
 
-            pnlContent.add(btnDownloadPicsHQ, constraintsBTN);
-            pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadPicsHQ")), constraintsLBL);
+//        pnlContent.add(btnDownloadPics, constraintsBTN);
+//        pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadPics")), constraintsLBL);
+//
+//        pnlContent.add(btnDownloadPicsHQ, constraintsBTN);
+//        pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadPicsHQ")), constraintsLBL);
+//
+//        pnlContent.add(btnDownloadSetPics, constraintsBTN);
+//        pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadSetPics")), constraintsLBL);
+//
+//        pnlContent.add(btnDownloadQuestImages, constraintsBTN);
+//        pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadQuestImages")), constraintsLBL);
+//
+//        pnlContent.add(btnDownloadAchievementImages, constraintsBTN);
+//        pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadAchievementImages")), constraintsLBL);
 
-            pnlContent.add(btnDownloadSetPics, constraintsBTN);
-            pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadSetPics")), constraintsLBL);
+        pnlContent.add(btnDownloadPrices, constraintsBTN);
+        pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadPrices")), constraintsLBL);
 
-            pnlContent.add(btnDownloadQuestImages, constraintsBTN);
-            pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadQuestImages")), constraintsLBL);
-
-            pnlContent.add(btnDownloadAchievementImages, constraintsBTN);
-            pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadAchievementImages")), constraintsLBL);
-
-            pnlContent.add(btnDownloadPrices, constraintsBTN);
-            pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadPrices")), constraintsLBL);
-
-            pnlContent.add(btnDownloadSkins, constraintsBTN);
-            pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadSkins")), constraintsLBL);
-        } else {
-            String text = localizer.getMessage("lblYourVersionOfJavaIsTooOld");
-            FLabel label = new FLabel.Builder().fontAlign(SwingConstants.CENTER).text(text).fontStyle(Font.BOLD).fontSize(18).build();
-            pnlContent.add(label, "w 90%!, h 25px!, center, gap 0 0 30px 3px");
-
-            text  = localizer.getMessage("lblPleaseUpdateToTheLatestVersionOfJava");
-            label = new FLabel.Builder().fontAlign(SwingConstants.CENTER).text(text).fontStyle(Font.BOLD).fontSize(18).build();
-            pnlContent.add(label, "w 90%!, h 25px!, center, gap 0 0 0 36px");
-
-            text = localizer.getMessage("lblYoureRunning") + " " + System.getProperty("java.version");
-            text = text + " . " + localizer.getMessage("lblYouNeedAtLeastJavaVersion") ;
-            label = new FLabel.Builder().fontAlign(SwingConstants.CENTER).text(text).fontStyle(Font.BOLD).fontSize(18).build();
-            pnlContent.add(label, "w 90%!, h 25px!, center, gap 0 0 0 36px");
-        }
+//        pnlContent.add(btnDownloadSkins, constraintsBTN);
+//        pnlContent.add(_makeLabel(localizer.getMessage("lblDownloadSkins")), constraintsLBL);
 
         pnlContent.add(btnListImageData, constraintsBTN);
         pnlContent.add(_makeLabel(localizer.getMessage("lblListImageData")), constraintsLBL);
@@ -138,12 +121,6 @@ public enum VSubmenuDownloaders implements IVSubmenu<CSubmenuDownloaders> {
 
         pnlContent.add(btnLicensing, constraintsBTN);
         pnlContent.add(_makeLabel(localizer.getMessage("lblLicensing")), constraintsLBL);
-    }
-
-    private boolean javaRecentEnough() {
-        RuntimeVersion javaVersion = RuntimeVersion.of(System.getProperty("java.version"));
-
-        return javaVersion.getMajor() >= 9 || (javaVersion.getMajor() >= 1 && (javaVersion.getMinor() > 8 || (javaVersion.getMinor() == 8 && javaVersion.getUpdate() >= 101)));
     }
 
     /* (non-Javadoc)
@@ -195,22 +172,18 @@ public enum VSubmenuDownloaders implements IVSubmenu<CSubmenuDownloaders> {
         p.setBackgroundTexture(FSkin.getIcon(FSkinProp.BG_TEXTURE));
 
         final FButton btnClose = new FButton(localizer.getMessage("lblOK"));
-        btnClose.addActionListener(new ActionListener() { @Override
-            public void actionPerformed(final ActionEvent arg0) { SOverlayUtils.hideOverlay(); } });
+        btnClose.addActionListener(arg0 -> SOverlayUtils.hideOverlay());
 
         p.add(c, "w 500!");
         p.add(btnClose, "w 200!, h pref+12!, center, gaptop 30");
         overlay.add(p, "gap 0 0 10% 10%");
         SOverlayUtils.showOverlay();
 
-        SwingUtilities.invokeLater(new Runnable() {
-            @Override
-            public void run() {
-                if (null != onShow) {
-                    onShow.run();
-                }
-                btnClose.requestFocusInWindow();
+        SwingUtilities.invokeLater(() -> {
+            if (null != onShow) {
+                onShow.run();
             }
+            btnClose.requestFocusInWindow();
         });
     }
     
@@ -223,14 +196,6 @@ public enum VSubmenuDownloaders implements IVSubmenu<CSubmenuDownloaders> {
     public void auditUpdate(FTextArea tar, FScrollPane scr) {
         StringBuffer nifSB = new StringBuffer(); // NO IMAGE FOUND BUFFER
         StringBuffer cniSB = new StringBuffer(); // CARD NOT IMPLEMENTED BUFFER
-        
-        nifSB.append("\n\n-------------------\n");
-        nifSB.append("NO IMAGE FOUND LIST\n");
-        nifSB.append("-------------------\n\n");
-        
-        cniSB.append("\n\n-------------------\n");
-        cniSB.append("UNIMPLEMENTED CARD LIST\n");
-        cniSB.append("-------------------\n\n");
 
         Pair<Integer, Integer> totalAudit = StaticData.instance().audit(nifSB, cniSB);
 
@@ -238,12 +203,9 @@ public enum VSubmenuDownloaders implements IVSubmenu<CSubmenuDownloaders> {
         tar.setCaretPosition(0); // this will move scroll view to the top...
         
         final FButton btnClipboardCopy = new FButton(localizer.getMessage("btnCopyToClipboard"));
-        btnClipboardCopy.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(final ActionEvent arg0) {
-                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(nifSB.toString()), null);
-                SOverlayUtils.hideOverlay();
-            }
+        btnClipboardCopy.addActionListener(arg0 -> {
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(nifSB.toString()), null);
+            SOverlayUtils.hideOverlay();
         });
         scr.getParent().add(btnClipboardCopy, "w 200!, h pref+12!, center, gaptop 10");
         
@@ -270,12 +232,9 @@ public enum VSubmenuDownloaders implements IVSubmenu<CSubmenuDownloaders> {
         final FScrollPane scr = new FScrollPane(tar, true, ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
                 ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS);
 
-        _showDialog(scr, new Runnable() {
-            @Override
-            public void run() {
-                auditUpdate(tar, scr);
-                scr.getViewport().setViewPosition(new Point(0, 0));
-            }
+        _showDialog(scr, () -> {
+            auditUpdate(tar, scr);
+            scr.getViewport().setViewPosition(new Point(0, 0));
         });
     }
 
@@ -302,9 +261,7 @@ public enum VSubmenuDownloaders implements IVSubmenu<CSubmenuDownloaders> {
         final FScrollPane scr = new FScrollPane(directions, false, ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
                 ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 
-        _showDialog(scr, new Runnable() {
-            @Override public void run() { scr.getViewport().setViewPosition(new Point(0, 0)); }
-        });
+        _showDialog(scr, () -> scr.getViewport().setViewPosition(new Point(0, 0)));
     }
 
     /* (non-Javadoc)

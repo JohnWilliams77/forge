@@ -11,6 +11,7 @@ import forge.game.spellability.SpellAbility;
 import forge.game.trigger.TriggerType;
 import forge.game.zone.ZoneType;
 import forge.util.Aggregates;
+import forge.util.Localizer;
 
 import java.util.Arrays;
 import java.util.List;
@@ -54,6 +55,7 @@ public class SeekEffect extends SpellAbilityEffect {
 
             CardCollection soughtCards = new CardCollection();
 
+            final StringBuilder notify = new StringBuilder();
             for (String seekType : seekTypes) {
                 CardCollection pool;
                 if (sa.hasParam("DefinedCards")) {
@@ -65,11 +67,12 @@ public class SeekEffect extends SpellAbilityEffect {
                     pool = CardLists.getValidCards(pool, seekType, source.getController(), source, sa);
                 }
                 if (pool.isEmpty()) {
+                    if (notify.length() != 0) notify.append("\r\n");
+                    notify.append(Localizer.getInstance().getMessage("lblSeekFailed", seekType));
                     continue; // can't find if nothing to seek
                 }
 
                 for (final Card c : Aggregates.random(pool, seekNum)) {
-
                     Map<AbilityKey, Object> moveParams = AbilityKey.newMap();
                     moveParams.put(AbilityKey.LastStateBattlefield, lastStateBattlefield);
                     moveParams.put(AbilityKey.LastStateGraveyard, lastStateGraveyard);
@@ -81,8 +84,11 @@ public class SeekEffect extends SpellAbilityEffect {
                     if (resultZone.equals(ZoneType.Hand)) { // if it went to hand as planned, consider it "sought"
                         soughtCards.add(movedCard);
                     }
-
                 }
+            }
+
+            if (notify.length() != 0) {
+                game.getAction().notifyOfValue(sa, source, notify.toString(), null);
             }
             if (!soughtCards.isEmpty()) {
                 if (sa.hasParam("RememberFound")) {
@@ -91,7 +97,9 @@ public class SeekEffect extends SpellAbilityEffect {
                 if (sa.hasParam("ImprintFound")) {
                     source.addImprintedCards(soughtCards);
                 }
-                game.getTriggerHandler().runTrigger(TriggerType.SeekAll, AbilityKey.mapFromPlayer(seeker), false);
+                final Map<AbilityKey, Object> runParams = AbilityKey.mapFromPlayer(seeker);
+                runParams.put(AbilityKey.Cards, soughtCards);
+                game.getTriggerHandler().runTrigger(TriggerType.SeekAll, runParams, false);
             }
         }
         triggerList.triggerChangesZoneAll(game, sa);

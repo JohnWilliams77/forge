@@ -3,6 +3,7 @@ package forge.adventure.scene;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.controllers.Controller;
 import com.badlogic.gdx.controllers.Controllers;
+import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
@@ -27,13 +28,17 @@ import forge.sound.SoundEffectType;
 import forge.sound.SoundSystem;
 import forge.util.ItemPool;
 
+import java.util.Comparator;
+
 /**
  * Displays the rewards of a fight or a treasure
  */
 public class RewardScene extends UIScene {
     private TextraButton doneButton, detailButton, restockButton;
     private TextraLabel playerGold, playerShards;
-    private TypingLabel shopNameLabel;
+    private TypingLabel headerLabel;
+    private Vector2 headerLabelOrigPos;
+    private boolean autoSell;
 
     private ShopActor shopActor;
     private static RewardScene object;
@@ -51,7 +56,8 @@ public class RewardScene extends UIScene {
     public enum Type {
         Shop,
         Loot,
-        QuestReward
+        QuestReward,
+        RewardChoice
     }
 
     Type type;
@@ -60,14 +66,15 @@ public class RewardScene extends UIScene {
     static public final float CARD_HEIGHT = 400f;
     static public final float CARD_WIDTH_TO_HEIGHT = CARD_WIDTH / CARD_HEIGHT;
     ItemPool<PaperCard> collectionPool = null;
+    private int remainingSelections = 0;
 
     private RewardScene() {
-
         super(Forge.isLandscapeMode() ? "ui/items.json" : "ui/items_portrait.json");
 
         playerGold = Controls.newAccountingLabel(ui.findActor("playerGold"), false);
         playerShards = Controls.newAccountingLabel(ui.findActor("playerShards"), true);
-        shopNameLabel = ui.findActor("shopName");
+        headerLabel = ui.findActor("shopName");
+        headerLabelOrigPos = new Vector2(headerLabel.getX(), headerLabel.getY());
         ui.onButtonPress("done", this::done);
         ui.onButtonPress("detail", this::toggleToolTip);
         ui.onButtonPress("restock", this::restockShop);
@@ -95,7 +102,6 @@ public class RewardScene extends UIScene {
     }
 
     private void toggleToolTip() {
-
         Selectable selectable = getSelected();
         if (selectable == null)
             return;
@@ -130,8 +136,8 @@ public class RewardScene extends UIScene {
             }
         }
         //save RAM
-        ImageCache.unloadCardTextures(true);
-        Forge.restrictAdvMenus = false;
+        ImageCache.getInstance().unloadCardTextures(true);
+        Forge.advFreezePlayerControls = false;
         if (this.collectionPool != null) {
             this.collectionPool.clear();
             this.collectionPool = null;
@@ -151,18 +157,14 @@ public class RewardScene extends UIScene {
     boolean done(boolean skipShowLoot) {
         GameHUD.getInstance().getTouchpad().setVisible(false);
         if (!skipShowLoot) {
-            doneButton.setText("[+OK]");
             showLootOrDone();
             return true;
         }
         if (type != null) {
             switch (type) {
                 case Shop:
-                    doneButton.setText("[+OK]");
-                    break;
                 case QuestReward:
                 case Loot:
-                    doneButton.setText("[+OK]");
                     break;
             }
         }
@@ -181,7 +183,7 @@ public class RewardScene extends UIScene {
             if (type == Type.Loot)
                 AdventurePlayer.current().addReward(reward.getReward());
             if (type == Type.QuestReward)
-                AdventurePlayer.current().addReward(reward.getReward()); // Want to customize this soon to have selectable rewards which will be handled different here
+                AdventurePlayer.current().addReward(reward.getReward()); // TODO Want to customize this soon to have selectable rewards which will be handled different here
             reward.clearHoldToolTip();
             try {
                 stage.getActors().removeValue(reward, true);
@@ -193,7 +195,7 @@ public class RewardScene extends UIScene {
     @Override
     public void act(float delta) {
         stage.act(delta);
-        ImageCache.allowSingleLoad();
+        ImageCache.getInstance().allowSingleLoad();
         if (doneClicked) {
             if (type == Type.Loot || type == Type.QuestReward) {
                 flipCountDown -= Gdx.graphics.getDeltaTime();
@@ -208,7 +210,7 @@ public class RewardScene extends UIScene {
 
     @Override
     public void enter() {
-        doneButton.setText("[+OK]");
+        autoSell = false;
         updateDetailButton();
         super.enter();
     }
@@ -243,7 +245,7 @@ public class RewardScene extends UIScene {
                             reward.flip();
                         }
                     }, delay);
-                    delay += 0.15f;
+                    delay += 0.12f;
                 }
             }
         } else {
@@ -297,6 +299,13 @@ public class RewardScene extends UIScene {
         loadRewards(rewards, type, shopActor);
     }
 
+    public void loadSelectableRewards(Array<Reward> choices, Type type, int countToSelect) {
+        if (type != Type.RewardChoice)
+            return;
+        this.remainingSelections = countToSelect;
+        loadRewards(choices, type, null);
+    }
+
     void updateCollectionPool() {
         if (Type.Shop != this.type)
             return;
@@ -309,6 +318,15 @@ public class RewardScene extends UIScene {
     }
 
     public void loadRewards(Array<Reward> newRewards, Type type, ShopActor shopActor) {
+        headerLabel.clearListeners();
+        // Sort the rewards based on the rarity of the card inside the reward/ lets give items rarity
+        newRewards.sort(Comparator.comparing(reward -> {
+            if (reward.getCard() != null && reward.getCard().getRarity() != null) {
+                return reward.getCard().getRarity().ordinal();
+            }
+            // Return a default value or handle the case where rarity is not present
+            return Integer.MAX_VALUE; // Assuming higher values mean less priority in sorting
+        }));
         clearSelectable();
         this.type = type;
         doneClicked = false;
@@ -316,6 +334,9 @@ public class RewardScene extends UIScene {
         if (type == Type.Shop) {
             this.shopActor = shopActor;
             this.changes = shopActor.getMapStage().getChanges();
+            addToSelectable(restockButton);
+        } else {
+            doneButton.setText("[+OK]");
         }
         for (Actor actor : new Array.ArrayIterator<>(generated)) {
             actor.remove();
@@ -323,24 +344,42 @@ public class RewardScene extends UIScene {
                 ((RewardActor) actor).dispose();
             }
         }
+        addToSelectable(doneButton);
         generated.clear();
 
         Actor card = ui.findActor("cards");
+        //reset pos
+        headerLabel.setPosition(headerLabelOrigPos.x, headerLabelOrigPos.y);
+        headerLabel.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                if (type == Type.Loot) {
+                    autoSell = !autoSell;
+                    String cb = autoSell ? "\u2611 " : "\u2610 ";
+                    headerLabel.setText("[%?SHINY][;]" + cb + Forge.getLocalizer().getMessage("lblAll"));
+                    for (Actor A : new Array.ArrayIterator<>(generated)) {
+                        if (A instanceof RewardActor) {
+                            ((RewardActor) A).setAutoSell(autoSell);
+                        }
+                    }
+                }
+            }
+        });
         if (type == Type.Shop) {
             String shopName = shopActor.getDescription();
             if (shopName != null && !shopName.isEmpty()) {
-                shopNameLabel.setVisible(true);
-                shopNameLabel.setText("[%?SHINY]{GRADIENT}" + shopName + "{ENDGRADIENT}");
-                shopNameLabel.skipToTheEnd();
+                headerLabel.setVisible(true);
+                headerLabel.setText("[%?SHINY]{GRADIENT}" + shopName + "{ENDGRADIENT}");
+                headerLabel.skipToTheEnd();
             } else {
-                shopNameLabel.setVisible(false);
+                headerLabel.setVisible(false);
             }
             Actor background = ui.findActor("market_background");
             if (background != null)
                 background.setVisible(true);
         } else {
-            shopNameLabel.setVisible(false);
-            shopNameLabel.setText("");
+            headerLabel.setVisible(false);
+            headerLabel.setText("");
             Actor background = ui.findActor("market_background");
             if (background != null)
                 background.setVisible(false);
@@ -362,12 +401,11 @@ public class RewardScene extends UIScene {
 
         switch (type) {
             case Shop:
-                doneButton.setText("[+OK]");
                 String shopName = shopActor.getDescription();
                 if ((shopName != null && !shopName.isEmpty())) {
-                    shopNameLabel.setVisible(true);
-                    shopNameLabel.setText("[%?SHINY]{GRADIENT}" + shopName + "{ENDGRADIENT}");
-                    shopNameLabel.skipToTheEnd();
+                    headerLabel.setVisible(true);
+                    headerLabel.setText("[%?SHINY]{GRADIENT}" + shopName + "{ENDGRADIENT}");
+                    headerLabel.skipToTheEnd();
                 }
 
                 if (shopActor.canRestock()) {
@@ -378,16 +416,26 @@ public class RewardScene extends UIScene {
                 }
                 break;
             case QuestReward:
-            case Loot:
-                shopNameLabel.setVisible(false);
-                shopNameLabel.setText("");
+                headerLabel.setVisible(false);
+                headerLabel.setText("");
                 restockButton.setVisible(false);
-                doneButton.setText("[+OK]");
                 break;
+            case Loot:
+                headerLabel.setPosition(restockButton.getX(), restockButton.getY());
+                headerLabel.setVisible(true);
+                headerLabel.setText("[%?SHINY][;]\u2610 " + Forge.getLocalizer().getMessage("lblAll"));
+                headerLabel.skipToTheEnd();
+                restockButton.setVisible(false);
+                break;
+            case RewardChoice:
+                restockButton.setVisible(false);
+                headerLabel.setVisible(remainingSelections > 0);
+                headerLabel.setText(Forge.getLocalizer().getMessage("lblSelectRewards", remainingSelections));
+                doneButton.setDisabled(remainingSelections > 0);
         }
         for (int h = 1; h < targetHeight; h++) {
             cardHeight = h;
-            if (type == Type.Shop) {
+            if (type == Type.Shop || type == Type.RewardChoice) {
                 cardHeight += doneButton.getHeight();
             }
             //cardHeight=targetHeight/i;
@@ -419,7 +467,9 @@ public class RewardScene extends UIScene {
                 mul *= 0.8f;
         }
         cardHeight = bestCardHeight * 0.90f;
-        Float custom = Forge.isLandscapeMode() ? Config.instance().getSettingData().rewardCardAdjLandscape : Config.instance().getSettingData().rewardCardAdj;
+        Float custom = Forge.isLandscapeMode()
+            ? Config.instance().getSettingData().rewardCardAdjLandscape
+            : Config.instance().getSettingData().rewardCardAdj;
         if (custom != null && custom != 1f) {
             mul *= custom;
         } else {
@@ -433,7 +483,6 @@ public class RewardScene extends UIScene {
                     mul *= Forge.isLandscapeMode() ? 1.05f : 1.5f;
                 else if (fW / fH >= 2f)
                     mul *= Forge.isLandscapeMode() ? 1f : 1.4f;
-
             }
         }
         cardWidth = (cardHeight / CARD_WIDTH_TO_HEIGHT) * mul;
@@ -451,7 +500,6 @@ public class RewardScene extends UIScene {
                 }
             }
 
-
             int currentRow = (i / numberOfColumns);
             float lastRowXAdjust = 0;
             if (currentRow == numberOfRows - 1) {
@@ -460,7 +508,7 @@ public class RewardScene extends UIScene {
                     lastRowXAdjust = ((numberOfColumns * cardWidth) - (lastRowCount * cardWidth)) / 2;
             }
 
-            RewardActor actor = new RewardActor(reward, type == Type.Loot || type == Type.QuestReward, type);
+            RewardActor actor = new RewardActor(reward, type == Type.Loot || type == Type.QuestReward, type, type == Type.Shop && (numberOfRows > 2 || numberOfColumns > 2));
 
             actor.setBounds(lastRowXAdjust + xOff + cardWidth * (i % numberOfColumns) + spacing, yOff + cardHeight * currentRow + spacing, cardWidth - spacing * 2, cardHeight - spacing * 2);
 
@@ -474,6 +522,13 @@ public class RewardScene extends UIScene {
                     stage.addActor(buyCardButton);
                     addToSelectable(buyCardButton);
                 }
+            } else if (type == Type.RewardChoice) {
+                if (currentRow != ((i + 1) / numberOfColumns))
+                    yOff += doneButton.getHeight();
+                ChooseRewardButton chooseRewardButton = new ChooseRewardButton(i, actor, reward, doneButton);
+                generated.add(chooseRewardButton);
+                stage.addActor(chooseRewardButton);
+                addToSelectable(chooseRewardButton);
             } else {
                 addToSelectable(actor);
             }
@@ -489,11 +544,18 @@ public class RewardScene extends UIScene {
         }
     }
 
-
     private void updateBuyButtons() {
         for (Actor actor : new Array.ArrayIterator<>(generated)) {
             if (actor instanceof BuyButton) {
                 ((BuyButton) actor).update();
+            }
+        }
+    }
+
+    private void updateChooseRewardButtons() {
+        for (Actor actor : new Array.ArrayIterator<>(generated)) {
+            if (actor instanceof ChooseRewardButton) {
+                ((ChooseRewardButton) actor).update();
             }
         }
     }
@@ -559,6 +621,69 @@ public class RewardScene extends UIScene {
                         getColor().a = 0.5f;
                         updateCollectionPool();
                         updateBuyButtons();
+                        removeListener(this);
+                    }
+                }
+            });
+        }
+    }
+
+    private class ChooseRewardButton extends TextraButton {
+        private final int index;
+        public RewardActor rewardActor;
+        private Reward reward;
+        boolean isSold;
+
+        void update() {
+            setDisabled(remainingSelections <= 0);
+            if (isSold)
+                setText("SELECTED");
+            else
+                updateOwned();
+        }
+
+        void updateOwned() {
+            if (Type.Shop != type)
+                return;
+            if (collectionPool != null && Reward.Type.Card.equals(reward.getType()))
+                setText("Pick Reward" + "\n" + Forge.getLocalizer().getMessage("lblOwned") + ": " + collectionPool.count(reward.getCard()));
+            else if (Reward.Type.Item.equals(reward.getType()))
+                setText("Pick Reward" + "\n" + Forge.getLocalizer().getMessage("lblOwned") + ": " + AdventurePlayer.current().countItem(reward.getItem().name));
+        }
+
+        public ChooseRewardButton(int i, RewardActor actor, Reward reward, TextraButton style) {
+            super("", style.getStyle(), Controls.getTextraFont());
+            this.index = i;
+            rewardActor = actor;
+            this.reward = reward;
+            setHeight(style.getHeight());
+            setWidth(actor.getWidth());
+            setX(actor.getX());
+            setY(actor.getY() - getHeight());
+
+            setText("Pick Reward");
+            updateOwned();
+            addListener(new ClickListener() {
+                @Override
+                public void clicked(InputEvent event, float x, float y) {
+                    if (remainingSelections >= 1) {
+
+                        remainingSelections--;
+                        Current.player().addReward(rewardActor.getReward());
+
+                        headerLabel.setVisible(remainingSelections > 0);
+                        headerLabel.setText("Select " + remainingSelections + " rewards");
+                        doneButton.setDisabled(remainingSelections > 0);
+
+                        Gdx.input.vibrate(5);
+                        //SoundSystem.instance.play(SoundEffectType.FlipCoin, false);
+
+                        isSold = true;
+                        setDisabled(true);
+                        rewardActor.sold();
+                        getColor().a = 0.5f;
+                        updateCollectionPool();
+                        updateChooseRewardButtons();
                         removeListener(this);
                     }
                 }

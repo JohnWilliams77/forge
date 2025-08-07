@@ -31,7 +31,6 @@ import forge.game.card.CardView;
 import forge.game.card.IHasCardView;
 import forge.game.player.Player;
 import forge.game.trigger.TriggerType;
-import forge.game.trigger.WrappedAbility;
 import forge.util.TextUtil;
 
 /**
@@ -44,7 +43,7 @@ import forge.util.TextUtil;
  */
 public class SpellAbilityStackInstance implements IIdentifiable, IHasCardView {
     private static int maxId = 0;
-    private static int nextId() { return ++maxId; }
+    public static int nextId() { return ++maxId; }
 
     // At some point I want this functioning more like Target/Target Choices
     // where the SA has an "active"
@@ -59,25 +58,30 @@ public class SpellAbilityStackInstance implements IIdentifiable, IHasCardView {
     private final SpellAbility ability;
 
     private final SpellAbilityStackInstance subInstance;
-    private Player activatingPlayer;
 
     private String stackDescription = null;
 
     private final StackItemView view;
 
     public SpellAbilityStackInstance(final SpellAbility sa) {
+        this(sa, nextId());
+    }
+    public SpellAbilityStackInstance(final SpellAbility sa, int assignedId) {
         // Base SA info
-        id = nextId();
+        id = assignedId;
         ability = sa;
         stackDescription = sa.getStackDescription();
-        activatingPlayer = sa.getActivatingPlayer();
 
         subInstance = ability.getSubAbility() == null ? null : new SpellAbilityStackInstance(ability.getSubAbility());
 
-        final Map<String, String> sVars = (ability.isWrapper() ? ((WrappedAbility) ability).getWrappedAbility() : ability).getDirectSVars();
-        if (ApiType.SetState == sa.getApi() && !sVars.containsKey("StoredTransform")) {
+        if (ApiType.SetState == sa.getApi() && !ability.hasSVar("StoredTransform")) {
             // Record current state of Transformation if the ability might change state
-            sVars.put("StoredTransform", String.valueOf(ability.getHostCard().getTransformedTimestamp()));
+            ability.setSVar("StoredTransform", String.valueOf(ability.getHostCard().getTransformedTimestamp()));
+        }
+
+        if (sa.getApi() == ApiType.Charm && sa.hasParam("ChoiceRestriction")) {
+            // Remember the Choice here for later handling
+            sa.getHostCard().addChosenModes(sa, sa.getSubAbility().getDescription(), sa.getHostCard().getGame().getPhaseHandler().inCombat());
         }
 
         view = new StackItemView(this);
@@ -129,21 +133,16 @@ public class SpellAbilityStackInstance implements IIdentifiable, IHasCardView {
         return ability.getTargets();
     }
 
-    public void updateTarget(TargetChoices target, Card cause) {
-        if (target != null) {
-            TargetChoices oldTarget = ability.getTargets();
-            ability.setTargets(target);
+    public void updateTarget(TargetChoices oldTC, Card cause) {
+        if (oldTC != null) {
             stackDescription = ability.getStackDescription();
             view.updateTargetCards(this);
             view.updateTargetPlayers(this);
             view.updateText(this);
-            
-            // Run BecomesTargetTrigger
-            Map<AbilityKey, Object> runParams = AbilityKey.newMap();
-            runParams.put(AbilityKey.SourceSA, ability);
+
             Set<GameObject> distinctObjects = Sets.newHashSet();
-            for (final GameObject tgt : target) {
-                if (oldTarget != null && oldTarget.contains(tgt)) {
+            for (final GameObject tgt : ability.getTargets()) {
+                if (oldTC.contains(tgt)) {
                     // it was an old target, so don't trigger becomes target
                     continue;
                 }
@@ -151,16 +150,23 @@ public class SpellAbilityStackInstance implements IIdentifiable, IHasCardView {
                     continue;
                 }
 
-                if (tgt instanceof Card && !((Card) tgt).hasBecomeTargetThisTurn()) {
-                    runParams.put(AbilityKey.FirstTime, null);
-                    ((Card) tgt).setBecameTargetThisTurn(true);
-                }
+                Map<AbilityKey, Object> runParams = AbilityKey.newMap();
+                runParams.put(AbilityKey.SourceSA, ability);
                 runParams.put(AbilityKey.Target, tgt);
+                if (tgt instanceof Card c) {
+                    if (!c.hasBecomeTargetThisTurn()) {
+                        runParams.put(AbilityKey.FirstTime, null);
+                    }
+                    if (c.isValiant(ability.getActivatingPlayer())) {
+                        runParams.put(AbilityKey.Valiant, null);
+                    }
+                    c.addTargetFromThisTurn(ability.getActivatingPlayer());
+                }
                 getSourceCard().getGame().getTriggerHandler().runTrigger(TriggerType.BecomesTarget, runParams, false);
             }
             // Only run BecomesTargetOnce when at least one target is changed
             if (!distinctObjects.isEmpty()) {
-                runParams = AbilityKey.newMap();
+                Map<AbilityKey, Object> runParams = AbilityKey.newMap();
                 runParams.put(AbilityKey.SourceSA, ability);
                 runParams.put(AbilityKey.Targets, distinctObjects);
                 runParams.put(AbilityKey.Cause, cause);
@@ -188,11 +194,10 @@ public class SpellAbilityStackInstance implements IIdentifiable, IHasCardView {
     }
 
     public Player getActivatingPlayer() {
-        return activatingPlayer;
+        return ability.getActivatingPlayer();
     }
     public void setActivatingPlayer(Player activatingPlayer0) {
-        if (activatingPlayer == activatingPlayer0) { return; }
-        activatingPlayer = activatingPlayer0;
+        ability.setActivatingPlayer(activatingPlayer0);
         view.updateActivatingPlayer(this);
         if (subInstance != null) {
             subInstance.setActivatingPlayer(activatingPlayer0);

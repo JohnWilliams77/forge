@@ -1,18 +1,20 @@
 package forge.game.ability.effects;
 
+import com.google.common.collect.Maps;
+
+import forge.game.Game;
+import forge.game.ability.AbilityKey;
 import forge.game.ability.AbilityUtils;
 import forge.game.ability.SpellAbilityEffect;
-import forge.game.card.Card;
-import forge.game.card.CardCollection;
-import forge.game.card.CardCollectionView;
-import forge.game.card.CardLists;
-import forge.game.card.CardUtil;
-import forge.game.card.CardPredicates.Presets;
+import forge.game.card.*;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
+import forge.game.trigger.TriggerType;
 import forge.game.zone.ZoneType;
 import forge.util.Lang;
 import forge.util.Localizer;
+
+import java.util.Map;
 
 public class UntapEffect extends SpellAbilityEffect {
 
@@ -38,6 +40,10 @@ public class UntapEffect extends SpellAbilityEffect {
 
     @Override
     public void resolve(SpellAbility sa) {
+        final Player activator = sa.getActivatingPlayer();
+        final boolean etb = sa.hasParam("ETB");
+        final Game game = sa.getHostCard().getGame();
+
         if (sa.hasParam("UntapUpTo")) {
             untapChoose(sa, false);
         } else if (sa.hasParam("UntapExactly")) {
@@ -46,17 +52,33 @@ public class UntapEffect extends SpellAbilityEffect {
             final CardCollection affectedCards = getTargetCards(sa);
             affectedCards.addAll(CardUtil.getRadiance(sa));
 
+            CardCollection untapped = new CardCollection();
             for (final Card tgtC : affectedCards) {
                 if (tgtC.isPhasedOut()) {
                     continue;
                 }
                 if (tgtC.isInPlay()) {
-                    tgtC.untap(true);
+                    // check if the object is still in game or if it was moved
+                    Card gameCard = game.getCardState(tgtC, null);
+                    // gameCard is LKI in that case, the card is not in game anymore
+                    // or the timestamp did change
+                    // this should check Self too
+                    if (gameCard == null || !tgtC.equalsWithGameTimestamp(gameCard)) {
+                        continue;
+                    }
+                    if (gameCard.untap()) untapped.add(gameCard);
                 }
-                if (sa.hasParam("ETB")) {
+                if (etb) {
                     // do not fire triggers
                     tgtC.setTapped(false);
                 }
+            }
+            if (!untapped.isEmpty() && !etb) {
+                final Map<AbilityKey, Object> runParams = AbilityKey.newMap();
+                final Map<Player, CardCollection> map = Maps.newHashMap();
+                map.put(activator, untapped);
+                runParams.put(AbilityKey.Map, map);
+                activator.getGame().getTriggerHandler().runTrigger(TriggerType.UntapAll, runParams, false);
             }
         }
     }
@@ -72,6 +94,7 @@ public class UntapEffect extends SpellAbilityEffect {
      *            whether the untapping is mandatory.
      */
     private static void untapChoose(final SpellAbility sa, final boolean mandatory) {
+        final Map<Player, CardCollection> map = Maps.newHashMap();
         final int num = AbilityUtils.calculateAmount(sa.getHostCard(), sa.getParam("Amount"), sa);
         final String valid = sa.getParam("UntapType");
 
@@ -82,14 +105,27 @@ public class UntapEffect extends SpellAbilityEffect {
 
             CardCollectionView list = CardLists.getValidCards(p.getGame().getCardsIn(ZoneType.Battlefield),
                     valid, sa.getActivatingPlayer(), sa.getHostCard(), sa);
-            list = CardLists.filter(list, Presets.TAPPED);
+            // the few mandatory are handled differently
+            if (!mandatory) {
+                list = CardLists.filter(list, CardPredicates.TAPPED);
+            }
 
+            CardCollection untapped = new CardCollection();
             final CardCollectionView selected = p.getController().chooseCardsForEffect(list, sa, Localizer.getInstance().getMessage("lblSelectCardToUntap"), mandatory ? num : 0, num, !mandatory, null);
             if (selected != null) {
                 for (final Card c : selected) {
-                    c.untap(true);
+                    if (c.untap()) untapped.add(c);
                 }
             }
+            if (!untapped.isEmpty()) {
+                map.put(p, untapped);
+            }
+        }
+        if (!map.isEmpty()) {
+            final Map<AbilityKey, Object> runParams = AbilityKey.newMap();
+            runParams.put(AbilityKey.Map, map);
+            sa.getActivatingPlayer().getGame().getTriggerHandler()
+                    .runTrigger(TriggerType.UntapAll, runParams, false);
         }
     }
 

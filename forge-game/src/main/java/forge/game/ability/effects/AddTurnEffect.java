@@ -2,17 +2,16 @@ package forge.game.ability.effects;
 
 import forge.game.Game;
 import forge.game.ability.AbilityFactory;
-import forge.game.ability.AbilityKey;
 import forge.game.ability.AbilityUtils;
 import forge.game.ability.SpellAbilityEffect;
 import forge.game.card.Card;
 import forge.game.phase.ExtraTurn;
 import forge.game.player.Player;
+import forge.game.replacement.ReplacementEffect;
+import forge.game.replacement.ReplacementHandler;
 import forge.game.spellability.SpellAbility;
 import forge.game.trigger.Trigger;
 import forge.game.trigger.TriggerHandler;
-import forge.game.trigger.TriggerType;
-import forge.game.zone.ZoneType;
 import forge.util.Lang;
 import forge.util.Localizer;
 
@@ -75,14 +74,12 @@ public class AddTurnEffect extends SpellAbilityEffect {
 
         final Card eff = createEffect(sa, sa.getActivatingPlayer(), name, image);
 
-        String stEffect = "Mode$ CantSetSchemesInMotion | EffectZone$ Command | Description$ Schemes can't be set in Motion";
+        String strRe = "Event$ SetInMotion | EffectZone$ Command | Layer$ CantHappen | Description$ Schemes can't be set in Motion";
+        ReplacementEffect re = ReplacementHandler.parseReplacement(strRe, eff, true);
+        eff.addReplacementEffect(re);
 
-        eff.addStaticAbility(stEffect);
-
-        game.getTriggerHandler().suppressMode(TriggerType.ChangesZone);
-        game.getAction().moveTo(ZoneType.Command, eff, sa, AbilityKey.newMap());
-        eff.updateStateForView();
-        game.getTriggerHandler().clearSuppression(TriggerType.ChangesZone);
+        game.getAction().moveToCommand(eff, sa);
+        game.getEndOfTurn().addUntil(exileEffectCommand(game, eff));
     }
 
 }

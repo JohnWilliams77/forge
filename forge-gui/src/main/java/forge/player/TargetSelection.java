@@ -17,26 +17,14 @@
  */
 package forge.player;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import forge.game.Game;
-import forge.game.GameEntity;
-import forge.game.GameEntityView;
-import forge.game.GameEntityViewMap;
-import forge.game.GameObject;
+import forge.game.*;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
 import forge.game.card.CardUtil;
 import forge.game.card.CardView;
+import forge.game.player.PlayerCollection;
 import forge.game.player.PlayerView;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityStackInstance;
@@ -47,7 +35,12 @@ import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
 import forge.gamemodes.match.input.InputSelectTargets;
 import forge.util.Aggregates;
+import forge.util.IterableUtil;
 import forge.util.TextUtil;
+
+import java.util.*;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -66,7 +59,7 @@ public class TargetSelection {
         this.ability = currentAbility;
     }
 
-    private final TargetRestrictions getTgt() {
+    private TargetRestrictions getTgt() {
         return this.ability.getTargetRestrictions();
     }
 
@@ -84,8 +77,8 @@ public class TargetSelection {
         final TargetRestrictions tgt = getTgt();
 
         // Number of targets is explicitly set only if spell is being redirected (ex. Swerve or Redirect)
-        final int minTargets = numTargets != null ? numTargets.intValue() : ability.getMinTargets();
-        final int maxTargets = numTargets != null ? numTargets.intValue() : ability.getMaxTargets();
+        final int minTargets = numTargets != null ? numTargets : ability.getMinTargets();
+        final int maxTargets = numTargets != null ? numTargets : ability.getMaxTargets();
         //final int maxTotalCMC = tgt.getMaxTotalCMC(ability.getHostCard(), ability);
         final int numTargeted = ability.getTargets().size();
         final boolean isSingleZone = tgt.isSingleZone();
@@ -109,11 +102,16 @@ public class TargetSelection {
         if (zones.size() == 1 && zones.get(0) == ZoneType.Stack) {
             // If Zone is Stack, the choices are handled slightly differently.
             // Handle everything inside function due to interaction with StackInstance
-            return chooseCardFromStack(mandatory);
+            return chooseCardFromStack(mandatory, numTargets);
         }
 
         List<GameEntity> candidates = tgt.getAllCandidates(this.ability, true);
-        final boolean hasEnoughCandidates = candidates.size() >= minTargets;
+        boolean hasEnoughCandidates = candidates.size() >= minTargets;
+        if (tgt.isDifferentControllers() || tgt.isForEachPlayer()) {
+            PlayerCollection controllers = new PlayerCollection();
+            IterableUtil.filter(candidates, Card.class).forEach(c -> controllers.add(c.getController()));
+            hasEnoughCandidates &= controllers.size() >= minTargets;
+        }
         mandatory &= hasEnoughCandidates;
 
         if (!hasEnoughCandidates && !hasEnoughTargets) {
@@ -148,7 +146,7 @@ public class TargetSelection {
             mustTargetFiltered = StaticAbilityMustTarget.filterMustTargetCards(controller.getPlayer(), validTargets, ability);
         }
         if (filter != null) {
-            validTargets = new CardCollection(Iterables.filter(validTargets, filter));
+            validTargets = new CardCollection(IterableUtil.filter(validTargets, filter));
         }
 
         // single zone
@@ -197,9 +195,9 @@ public class TargetSelection {
         }
 
         PlayerView playerView = controller.getLocalPlayerView();
-        PlayerZoneUpdates playerZoneUpdates = controller.getGui().openZones(playerView, zones, playersWithValidTargets, true);
+        PlayerZoneUpdates playerZoneUpdates = controller.getGui().openZones(playerView, validTargets.stream().map(c -> c.getZone().getZoneType()).collect(Collectors.toSet()), playersWithValidTargets, true);
         if (!zones.contains(ZoneType.Stack)) {
-            InputSelectTargets inp = new InputSelectTargets(controller, validTargets, ability, mandatory, divisionValues, filter, mustTargetFiltered);
+            InputSelectTargets inp = new InputSelectTargets(controller, validTargets, ability, mandatory, numTargets, divisionValues, filter, mustTargetFiltered);
             inp.showAndWait();
             choiceResult = !inp.hasCancelled();
             bTargetingDone = inp.hasPressedOk();
@@ -212,7 +210,7 @@ public class TargetSelection {
         return choiceResult && chooseTargets(numTargets, divisionValues, filter, optional, canFilterMustTarget);
     }
 
-    private final boolean chooseCardFromList(final List<Card> choices, final boolean targeted, final boolean mandatory) {
+    private boolean chooseCardFromList(final List<Card> choices, final boolean targeted, final boolean mandatory) {
         // Send in a list of valid cards, and popup a choice box to target
         final Game game = ability.getActivatingPlayer().getGame();
 
@@ -312,7 +310,7 @@ public class TargetSelection {
         return true;
     }
 
-    private final boolean chooseCardFromStack(final boolean mandatory) {
+    private boolean chooseCardFromStack(final boolean mandatory, final Integer numTargets) {
         final TargetRestrictions tgt = this.getTgt();
         final String message = TextUtil.fastReplace(tgt.getVTSelection(),
                 "CARDNAME", ability.getHostCard().toString());
@@ -330,12 +328,13 @@ public class TargetSelection {
         }
 
         while (!bTargetingDone) {
-            if (ability.isMaxTargetChosen()) {
+            if (ability.isMaxTargetChosen() || (numTargets != null && ability.getTargets().size() == numTargets)) {
                 bTargetingDone = true;
                 return true;
             }
 
-            if (!selectOptions.contains("[FINISH TARGETING]") && ability.isMinTargetChosen()) {
+            if (!selectOptions.contains("[FINISH TARGETING]") && ability.isMinTargetChosen() &&
+                    (numTargets == null || ability.getTargets().size() == numTargets)) {
                 selectOptions.add("[FINISH TARGETING]");
             }
 

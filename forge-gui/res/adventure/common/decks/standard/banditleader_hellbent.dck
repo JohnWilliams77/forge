@@ -1,11 +1,5 @@
-[duel]
 [metadata]
 Name=Diablo 3
-Title=Diablo
-Difficulty=hard
-Description=BR Hellbent deck
-Icon=Diablo.jpg
-Deck Type=constructed
 [main]
 4 Badlands
 4 Bloodstained Mire
@@ -14,8 +8,8 @@ Deck Type=constructed
 4 Swamp
 1 Urborg, Tomb of Yawgmoth
 1 Keldon Megaliths
-1 Mox Jet
-1 Mox Ruby
+1 Fire Diamond
+1 Charcoal Diamond
 3 Simian Spirit Guide
 4 Rakdos Cackler
 1 Tormented Soul

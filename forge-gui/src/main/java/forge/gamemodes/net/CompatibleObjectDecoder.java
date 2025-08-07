@@ -1,8 +1,5 @@
 package forge.gamemodes.net;
 
-import java.io.ObjectInputStream;
-import java.io.StreamCorruptedException;
-
 import forge.gui.GuiBase;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufInputStream;
@@ -10,6 +7,9 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.serialization.ClassResolver;
 import net.jpountz.lz4.LZ4BlockInputStream;
+
+import java.io.ObjectInputStream;
+import java.io.StreamCorruptedException;
 
 public class CompatibleObjectDecoder extends LengthFieldBasedFrameDecoder {
     private final ClassResolver classResolver;
@@ -37,7 +37,7 @@ public class CompatibleObjectDecoder extends LengthFieldBasedFrameDecoder {
         try {
             var5 = ois.readObject();
         } catch (StreamCorruptedException e) {
-            System.err.println(String.format("Version Mismatch: %s", e.getMessage()));
+            System.err.printf("Version Mismatch: %s%n", e.getMessage());
         } finally {
             ois.close();
         }

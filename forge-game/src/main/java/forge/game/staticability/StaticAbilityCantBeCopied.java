@@ -26,13 +26,11 @@ import forge.game.zone.ZoneType;
  */
 public class StaticAbilityCantBeCopied {
 
-    static String MODE = "CantBeCopied";
-
     public static boolean cantBeCopied(final Card c) {
         final Game game = c.getGame();
         for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
-                if (!stAb.checkConditions(MODE)) {
+                if (!stAb.checkConditions(StaticAbilityMode.CantBeCopied)) {
                     continue;
                 }
                 if (cantBeCopiedCheck(stAb, c)) {
@@ -43,7 +41,7 @@ public class StaticAbilityCantBeCopied {
         return false;
     }
 
-    public static boolean cantBeCopiedCheck(final StaticAbility stAb, final Card card) {
+    private static boolean cantBeCopiedCheck(final StaticAbility stAb, final Card card) {
         if (stAb.matchesValidParam("ValidCard", card)) {
             return true;
         }

@@ -16,9 +16,9 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.core.classloader.annotations.SuppressStaticInitializationFor;
 import org.powermock.modules.testng.PowerMockTestCase;
-import org.testng.IObjectFactory;
+//import org.testng.IObjectFactory;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.ObjectFactory;
+//import org.testng.annotations.ObjectFactory;
 
 import forge.ImageCache;
 import forge.ImageKeys;
@@ -36,7 +36,7 @@ import forge.util.TextUtil;
         ImageKeys.class, ForgeConstants.class, Localizer.class })
 @SuppressStaticInitializationFor({ "forge.ImageCache", "forge.localinstance.properties.ForgeConstants" })
 @PowerMockIgnore({ "javax.xml.*", "org.xml.sax.*", "com.sun.org.apache.xerces.*", "org.w3c.dom.*",
-        "org.springframework.context.*", "org.apache.log4j.*" })
+        "org.springframework.context.*", "org.apache.log4j.*", "jdk.internal.reflect.*", "javax.imageio.*" })
 public class CardMockTestCase extends PowerMockTestCase {
 
     public static final String MOCKED_LOCALISED_STRING = "any localised string";
@@ -184,8 +184,8 @@ public class CardMockTestCase extends PowerMockTestCase {
         PowerMockito.when(FModel.getMagicDb()).thenReturn(data);
     }
 
-    @ObjectFactory
+    /*@ObjectFactory
     public IObjectFactory getObjectFactory() {
         return new org.powermock.modules.testng.PowerMockObjectFactory();
-    }
+    }*/
 }
